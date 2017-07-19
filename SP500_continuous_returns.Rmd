@@ -1,0 +1,82 @@
+---
+title: "FinancialAnalysisHomework1Navarro"
+author: "John Navarro"
+date: "June 23, 2017"
+output: pdf_document
+---
+
+### 1. Read Chapter 1 of the book
+### 2. Download and analyze excess returns of S&P 500
+
+Calculate continuous daily excess returns of SP500("^GSPC") for the period from 1/1/2014 until 12/31/2014 using overnight Fed Funds rates as risk-free rates.
+```{r, warning=FALSE, include=FALSE}
+# Install packages
+suppressWarnings(library(quantmod))
+library(moments)
+```
+
+```{r}
+# Read in the data
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week1_Introduction"
+Curr <- read.csv(file=paste(datapath, 'GBP_JPY.csv', sep='/'))
+SP500 <- read.csv(file = paste(datapath, 'FSP500.csv', sep='/'))
+# Check the data
+head(SP500)
+# Calculate the simple daily return
+SP500$simple.excess.return <- SP500$RIFSPFF_N.B - SP500$SP500Returns
+#Calculate the continuous excess return
+SP500.cont.excess.return <- diff(log(SP500$simple.excess.return))
+# Plot the continuous excess return
+plot(SP500.cont.excess.return, type="l", ylab="Excess returns of SP500", xlab = "Date", xaxt="n", main="Continuous Excess Daily Returns of S&P 500")
+axis(1, at=10*(1:25), labels=SP500[10*(1:25),1])
+
+```
+
+### 3. Download and analyze exchange rates
+
+Answer the same questions as in Exercise 5 on page 37 as a refresher of statistical analysis skills. Try to do it without using R demo code from the book
+
+1. Download GBP/USD and USD/JPY exchange rates from Oanda using quantmode
+```{r}
+#getSymbols("GBP/USD",src="oanda", from= "2017-01-02", to= Sys.Date())
+#getFX("USD/JPY")
+```
+Using the above code gives the following error. "Error in charToDate(x) : character string is not in a standard unambiguous format"
+So I gathered closing FX data from Bloomberg for both GBP/USD and USD/JPY for 1/2/2007 to 11/30/2011. These dates were from Exercise 5 in the textbook.
+
+2. Calculate daily log returns of both exchange rates
+```{r}
+head(Curr)
+GBP.daily.log.return <- diff(log(Curr$GBPClose))
+head(GBP.daily.log.return)
+JPY.daily.log.return <- diff(log(Curr$JPYClose))
+head(JPY.daily.log.return)
+
+```
+
+3. Calculate min, mean, sd, skewness, Kurtosis, and max of log returns for both exchange rates
+
+```{r}
+c(GBP.min = min(GBP.daily.log.return),
+  GBP.mean = mean(GBP.daily.log.return),
+  GBP.sd = sd(GBP.daily.log.return),
+  GBP.skew = skewness(GBP.daily.log.return),
+  GBP.kurt = kurtosis(GBP.daily.log.return),
+  GBP.max = max(GBP.daily.log.return))
+```
+
+```{r}
+c(JPY.min = min(JPY.daily.log.return),
+  JPY.mean = mean(JPY.daily.log.return),
+  JPY.sd = sd(JPY.daily.log.return),
+  JPY.skew = skewness(JPY.daily.log.return),
+  JPY.kurt = kurtosis(JPY.daily.log.return),
+  JPY.max = max(JPY.daily.log.return))
+```
+
+4. Test hypothesis H0: u=0 against alternative H0: u!=0
+```{r}
+t.test(GBP.daily.log.return)
+t.test(JPY.daily.log.return)
+```
+ In both cases the p- values are not significant. So we cannot reject the null hypothesis in either case. We say that the means are not significantly different from zero.
