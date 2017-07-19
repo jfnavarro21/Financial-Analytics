@@ -1,0 +1,198 @@
+---
+title: "FA Homework Assignment 4"
+author: "John Navarro"
+date: "July 14, 2017"
+output: pdf_document
+---
+
+This assignment helps understanding stationarity and seasonality of linear models for time series
+
+Exercise 7 on page 126 of the Textbook
+
+Consider the quarterly earnings per share of Johnson & Johnson from the first quarter of 1992 to the second quarter of 2011. The data are in the file q-jnj-earns-9211.txt available on the textbook web page.
+Take log transformation if necessary.
+Build a time series model for the data.
+Perform model checking to assess the adequacy of the fitted model.
+Write down the model.
+Refit the model using data from 1992 to 2008.
+Perform 1-step to 10-step forecasts of quarterly earnings and obtain a forecast plot.
+```{r, warning=FALSE, include=FALSE}
+library(tseries)
+library(forecast)
+library(TSA)
+```
+Read in the data
+```{r}
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week4_ARIMA"
+da=read.table(file=paste(datapath,"q-jnj-earns-9211.txt" ,sep="/"),header=T)
+tail(da)
+dim(da) # 78 x 4
+```
+Take log transformation if necessary.
+```{r}
+ln.earns <- log(da$earns)
+par(mfrow=c(1,2))
+plot(da$earns, type="l", main="Original earnings")
+plot(ln.earns, type="l", main="Log transformation of earnings")
+```
+Using log transformation seems to smooth out the slope of the data compared to the original data series
+
+Create a time series model for the data
+```{r}
+# First we try to determine the order
+ar(ln.earns) # suggests AR(9)
+adf.test(ln.earns) # not stationary
+
+# Take the difference of the log transformed earnings
+diff.ln.earns <- diff(ln.earns)
+# add 4 quarter seasonality
+s.diff.ln.earns <- diff(ln.earns, 4)
+# combine seasonal and regular differences
+d.diff.ln.earns <- diff(s.diff.ln.earns)
+
+# Look at acf plots
+par(mfrow=c(2,2))
+acf(ln.earns)
+acf(diff.ln.earns)
+acf(s.diff.ln.earns)
+acf(d.diff.ln.earns)
+```
+Here we see that taking the log of earnings (ln.earns) is not stationary. Taking the difference (diff.ln.earns) shows us seasonality, we can see every fourth lag a large and positive bar. The third ACF plot, is after taking 4 period seasonality into account (s.diff.ln.earns). Here we see exponential decay in the ACF plot. Taking one more difference (d.diff.ln.earns) seems to be going too far, we don't even have significant correlation at the first lag.
+
+```{r}
+# Obtain time plots
+par(mfcol=c(3,1))
+plot(diff.ln.earns, xlab="year", ylab="diff", type="l")
+points(diff.ln.earns,pch="c1",cex=0.7)
+plot(s.diff.ln.earns, xlab="year", ylab="Seas diff", type="l")
+points(s.diff.ln.earns,pch="c1",cex=0.7)
+plot(d.diff.ln.earns, xlab="year", ylab="Both Seas diff", type="l")
+points(d.diff.ln.earns,pch="c1",cex=0.7)
+
+```
+
+```{r}
+adf.test(diff.ln.earns)
+adf.test(s.diff.ln.earns)
+adf.test(d.diff.ln.earns)
+```
+
+
+Regular differencing (diff.ln.earns) removed growth and has strong seasonality. The ACF for diff.ln.earns shows high positive autocorrelation at lags which are multiples of 4 (4, 8,12, etc)
+
+Seasonal differencing(s.diff.ln.earns) using 4 period cycle, seems to have removed the seasonality, but does not look stationary. After looking at the ADF test, we cannot reject the null hypothesis of Unit root.
+
+Double differencing (d.diff.ln.earns) using the first difference of the seasonal difference removed seasonality and non stationarity. The ADF test gives us a significant p-value and we can reject the null hypothesis. 
+
+Now we try to find the order of the time series model using the double differenced time series
+
+```{r}
+# create a time series
+d.earns.ts <- ts(d.diff.ln.earns, frequency=4)
+```
+
+```{r}
+eacf(d.earns.ts) # suggests ARMA(0,0), maybe not a good suggestion
+
+# Run auto.arima() on the time series d.diff.ln.earns
+seas.mod <- auto.arima(d.earns.ts, seasonal=T)  # suggests SARIMA (0,0,1)(0,0,1)[4], AIC -283.81
+summary(seas.mod)
+
+```
+
+Perform model check
+```{r}
+# Test the residuals
+tsdiag(seas.mod, gof=20)
+Box.test(seas.mod$residuals, lag=12, type = "Ljung")
+```
+
+Here we see that the iid assumptions are valid. The Ljung Box test gives us a large p value, that means that Q(sum of squares of ACF magnitudes)is small. Therefore the residuals are stationary.
+
+Conclusion: the model is adequate
+
+The model is:
+
+yt=(1-0.3223B)(1-0.2175B)et
+
+
+Refit the model using data from 1992 to 2008
+```{r}
+
+y=da$earns[1:68]
+ln.y=log(y)
+# Take the difference of the log transformed earnings
+diff.ln.y <- diff(ln.y)
+# create a time series
+d.y.ts <- ts(diff.ln.y, frequency=4)
+# Use auto.arima to suggest best model
+y.seas.mod <- auto.arima(d.y.ts, seasonal = T) #suggests ARIMA(0,0,1)(0,1,0) AIC = -250.29
+summary(y.seas.mod)
+```
+
+Perform 1 to 10 step forecasts of earnings and obtain a forecast plot
+
+```{r}
+pm1 <- predict(y.seas.mod, 10)
+pm1
+```
+
+```{r}
+pred=pm1$pred
+se=pm1$se
+jnj=da$earns # actual observations
+fore=exp(pred+se^2/2) #point forecasts, delogged
+v1=exp(2*pred+se^2)*(exp(se^2)-1)
+s1=sqrt(v1) # std of the forecast error
+eps=jnj[51:78]
+length(eps)
+
+tdx=(c(1:28)+1)/4+2004 
+upp=c(jnj[68],fore+2*s1) # upper band (+2*std)
+low=c(jnj[68],fore-2*s1) # lower band (-2*std)
+min(low,eps)
+max(upp,eps)
+
+plot(tdx,eps,xlab='year',ylab='earnings',type='l',ylim=c(0.35,1.8))
+points(tdx[19:28],fore,pch='*')
+lines(tdx[18:28],upp,lty=2)
+lines(tdx[18:28],low,lty=2)
+points(tdx[19:28],jnj[69:78],pch='o',cex=0.7)
+```
+
+```{r}
+
+#############Extra exploration, not in PDF#############3
+
+
+
+d.diff.ln.y <- diff(s.diff.ln.y)
+# create a time series for seasonal diff of log of y
+d.d.y.ts <- ts(d.diff.ln.y, frequency=4)
+# Use auto.arima to suggest best model
+y.seas.mod4 <- auto.arima(d.d.y.ts, seasonal = T) #suggests ARIMA(0,0,1)(0,1,0) AIC = -250.29
+summary(y.seas.mod4)
+pm1 <- predict(y.seas.mod4, 10)
+pm1
+pred=pm1$pred
+se=pm1$se
+jnj=da$earns # actual observations
+fore=exp(pred+se^2/2) #point forecasts, delogged
+v1=exp(2*pred+se^2)*(exp(se^2)-1)
+s1=sqrt(v1) # std of the forecast error
+eps=jnj[51:78]
+length(eps)
+
+tdx=(c(1:28)+1)/4+2004 
+upp=c(jnj[68],fore+2*s1) # upper band (+2*std)
+low=c(jnj[68],fore-2*s1) # lower band (-2*std)
+min(low,eps)
+max(upp,eps)
+
+plot(tdx,eps,xlab='year',ylab='earnings',type='l',ylim=c(0.35,1.8))
+points(tdx[19:28],fore,pch='*')
+lines(tdx[18:28],upp,lty=2)
+lines(tdx[18:28],low,lty=2)
+points(tdx[19:28],jnj[69:78],pch='o',cex=0.7)
+```
+
