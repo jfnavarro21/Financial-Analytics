@@ -1,0 +1,326 @@
+---
+title: "FA Homework Week5"
+author: "John Navarro"
+date: "July 21, 2017"
+output: pdf_document
+---
+# Analysis of Moody's Bond Yields
+
+This assignment helps understanding stationarity and seasonality of linear models for time series
+Consider the monthly yields f Moody's AAA and BAA bonds from exercises 4-6 on page 126. The data are in the file  MYieldsData.csv. Analyze possible types of relationships between the two yield variables using regression model with stationary residuals and cointegration.
+What is a valid model for predicting the data?
+
+## 1. Exploratory Analysis
+
+```{r, warning=FALSE, include=FALSE }
+# Load dependencies
+library(forecast)
+library(fArma)
+library(urca)
+```
+
+```{r}
+# Read in the data
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week5_Cointegration"
+x<-read.csv(file=paste(datapath,"MYieldsData.csv",sep="/"))
+
+# Print head and dimensions of data
+head(x)
+#dim(x)  #1115 x3
+
+# Assign the AAA and BAA constant maturity rates
+raaa <- x[,2]
+rbaa <- x[,3]
+
+# Plot the two time series
+plot(raaa, col="black", type="l", main="AAA and BAA Constant Maturity Rates")
+lines(rbaa, col="red")
+
+# Make a scatter plot of raaa vs rbaa to observe the correlation
+plot(raaa, rbaa, xlab="AAA Yields", ylab="BAA Yields", main="Scatter plot of AAA vs BAA Yields")
+```
+It appears that these time series are correlated, but when the rates are low, it seems like there is more deviation from the correlation.
+
+## 2. Models
+
+#### 2.1 Regression 
+
+```{r}
+# Fit to a linear model and print the summary
+linreg <- lm(rbaa~raaa)
+summary(linreg)
+
+# Explore the residuals
+plot(linreg$residuals)#, type="l")
+hist(linreg$residuals)
+acf(linreg$residuals)
+Box.test(linreg$residuals, lag=12, type="Ljung")
+```
+The plot and histogram of the residuals from linear regression model do not look like gaussian behavior. The ACF plot has highly significant auto correlation at all lags. The residuals are not stationary. Which is also confirmed by the Ljung-Box test. This is not a good model.
+
+Next, we explore if differencing the data will help
+
+```{r}
+# Take the first difference of both time series
+daaa <- diff(raaa)
+dbaa <- diff(rbaa)
+
+# Create a scatter plot of these differences
+plot(daaa, dbaa, main="Scatterplot of yield differences")
+```
+We still see some correlation, fit another linear regression with no intercept
+```{r}
+# Fit linear regression model
+diff.linreg <- lm(dbaa~daaa-1)
+summary(diff.linreg)
+
+# Explore the residuals
+plot(diff.linreg$residuals)#, type="l")
+hist(diff.linreg$residuals)
+acf(diff.linreg$residuals)
+Box.test(diff.linreg$residuals, lag=12, type="Ljung")
+```
+From the residual plot, we see that there are a few outliers while most of the residuals are close to zero. This is confirmed by looking at the histogram. ACF test shows significant correlation at multiple lags. While Ljung-Box confirms that the residuals are not stationary.
+
+Lets try to fit an ARMA model to the residuals of the differenced data.
+
+```{r}
+dlr.ts <- ts(diff.linreg$residuals, frequency = 12) #1114
+
+# Run residuals through auto.arima function
+auto.arima(dlr.ts, seasonal=T)
+```
+auto.arima suggest an ARMA(2,2) model for the residuals
+```{r}
+# Fit an ARMA model to the residuals
+ma22 <- armaFit(~arma(2,2), data=dlr.ts)
+summary(ma22, which="all")
+```
+
+Build forecast for the differenced BAA yields using linear model with ARMA errors.
+
+```{r}
+#Extract residuals
+ma22_res <- residuals(ma22) #1114
+et2 <- ma22_res
+et1 <- ma22_res[-1]
+et <-et1[-1]
+
+head(et) #1112
+head(et1)#1113
+head(et2)#1114
+```
+Here we can see that the ith value of the et2 data, is equal to the i-1th value of the et1 data, and equal to the i-2th value of the et data
+
+```{r}
+# Create Xt-1and Xt-2
+xt2 <- dlr.ts[-length(dlr.ts)]
+xt1 <- dlr.ts[-1]
+head(xt1) #1113
+head(xt2) #1113
+```
+Similarly, we can confirm that the ith value of the Xt2 data is equal to the i-1 value of the Xt1 data
+
+```{r}
+# Extract ARMA 2,2 coefficients
+phi1 <- ma22@fit$coef[1]
+phi2 <- ma22@fit$coef[2]
+theta1 <- ma22@fit$coef[3]
+theta2 <- ma22@fit$coef[4]
+
+# Build the equation for a_t (the errors for the linear model)
+a_t <- phi1*xt1 + phi2*xt2 + et + theta1*et1+theta2*et2
+head(a_t)
+```
+
+Forecast one step ahead for BAA
+
+```{r}
+x_B <- rbaa[-length(raaa)]
+
+#The forecast equation:
+#forecast <- BAArates(-1) + slope * differenced AAA + error from arma22
+forec <- x_B + diff.linreg$coefficients*daaa +a_t
+
+# plot the BAA yields and the forecast
+matplot(cbind(rbaa[-1],forec),type = "l",col = c("black","red"),main= "3 Year rate and forecast",ylab="BAA yield and Forecast")
+legend("topright", c("BAA rates","Forecasts"), lwd=2,col = c("black","red"), bty="n")
+```
+
+Check a scatter plot of BAA forecast differences vs AAA differences
+```{r}
+# Shorten daaa to match length  of difforec
+daaa.2 <- daaa[-1]
+
+# Difference the forecast data
+difforec <- diff(forec) #1113
+
+# Bind the two time series into a matrix
+cr <- cbind(difforec, daaa.2)
+
+# Scatter plot of differenced forecasts of BAA and differenced AAA Yields
+plot(cr[,1],cr[,2], col = "black",main = "Differences of Forecasted BAA vs Differences of AAA Yields",
+      xlab="Difference of Forecasts of BAA Rate",ylab="Differences of AAA Rate")
+```
+
+#### 2.2 Cointegration
+
+Fit cointegration model
+```{r}
+# merge AAA and BAA time series
+data <- cbind(raaa, rbaa)
+
+#use Johansen Procedure
+cajo <- ca.jo(data, ecdet = "none", type="eigen", K=2, spec ="longrun")
+summary(cajo)
+
+```
+Plot residuals and ACFs and PACFs
+```{r}
+plotres(cajo)
+
+
+```
+Check Statistics and critical values for the test for cointegration order
+```{r}
+cajo@teststat
+cajo@cval
+```
+Plot test of null hypothesis
+```{r}
+barplot(cajo@cval[1,],main = "Johansen test h<=1",col = "red")
+abline(h=cajo@teststat[1], col="blue")
+legend("topleft", c("critical values","test statistics"), lwd=2,col = c("red","blue"), bty="n")
+```
+Here we cannot reject the null hypothesis that the cointegration order is less than or equal to one.
+```{r}
+barplot(cajo@cval[2,],main = "Johansen test h=0",col = "red", ylim=range(0:25))
+abline(h=cajo@teststat[2], col="blue")
+legend("topleft", c("critical values","test statistics"), lwd=2,col = c("red","blue"), bty="n")
+```
+Here we can reject the null hypothesis that the cointegration order = 0. Merging both tests together, we can conclude that the Time series have a cointegration order of 1.
+
+```{r}
+# Cointegration vector
+(a_1 <- cajo@V[,1])
+
+# multiply the data by the cointegration vector
+z_t1= data %*% a_1
+matplot(z_t1,type ="l", main = "z(1,t)=a1'x(t)", col = "black")
+```
+Estimate autoregression model for process zt1
+```{r}
+zar <-ar(z_t1,  aic = TRUE,method = "yule-walker")
+zar$order
+```
+Check the roots of the characteristic equations
+```{r}
+par(mfrow = c(1, 1), cex = 0.9)
+armaRoots(zar$ar,lwd = 8, n.plot = 400, digits = 8)
+```
+Check cointegration vector 2, 
+```{r}
+a_2<- cajo@V[,2]
+z_t2= data %*% a_2
+matplot(z_t2,type ="l", main = "z(2,t)=a2'x(t)", col = "black")
+```
+
+### Predicting using Cointegration model
+
+Using the following matrix multiplication equation:
+deltaXt = GAMMA * deltaXt1 + PI * Xt2 + mu + et
+
+```{r}
+#Extract the values
+#mu
+(mu <- cajo@GAMMA[,1])
+
+#PI
+(PI <- cajo@PI)
+
+# GAMMA coefficients
+(Gamma <- cajo@GAMMA[,2:3])
+
+#delta X t-1 
+dX_1 <- cajo@Z0
+head(dX_1)
+
+#X t-2
+X_2 <- cajo@ZK
+head(X_2)
+```
+```{r}
+deltaX_t_1 <- Gamma %*% t(dX_1) + PI %*%t(X_2) 
+deltaX_t_1<-apply(deltaX_t_1,2,"+",mu)
+
+nrowsdata <- dim(data)[1]
+data_t_2 = data[3:nrowsdata,]
+deltaX_t_1 <- t(deltaX_t_1)
+forecX <- data_t_2+deltaX_t_1
+
+#Plot the predictions of the AAA yield
+fraaa = cbind(raaa[3:length(raaa)],forecX[,1])
+matplot(fraaa,col =c("black","red"),type="l",main = "AAA Yield and prediction")
+legend("topright", c("AAA yield","prediction"), lwd=2,col = c("black","red"), bty="n")
+```
+
+Find predictions for BAA
+```{r}
+frbaa = cbind(rbaa[3:length(rbaa)],forecX[,2])
+matplot(frbaa,col =c("black","red"),type="l",main = "BAA yields and prediction")
+legend("topright", c("BAA yield","prediction"), lwd=2,col = c("black","red"), bty="n")
+```
+Difference the forecasts and plot them
+```{r}
+dfaaa <- diff(fraaa)
+dfbaa <- diff(frbaa)
+
+#Scatter plot of the differences of the forecasts
+plot(dfaaa,dfbaa,col ="black",main = "Scatter plot for change of prediction for AAA and BAA yields",
+     xlab="Differenced Forecasts of AAA Yields",ylab="Differenced Forecasts of BAA Yields")
+```
+Here we can see that the cointegration model also captures short term dependence of the two ratings levels.
+
+Check the errors of prediction by the cointegration model (not differenced data)
+```{r}
+# Calculate the error of actual minus predicted for both yield levels
+cerrorA<-raaa[3:length(raaa)]-forecX[,1]
+cerrorB<-rbaa[3:length(rbaa)]-forecX[,2]
+
+#Plot both errors
+matplot(cerrorA,main = " Error of Prediction of AAA Yield",type = "l")
+matplot(cerrorB,main = " Error of Prediction of BAA Yield",type = "l")
+
+# Scatterplot of errors of predicaiton for both bond levels
+plot(cerrorA,cerrorB,col ="black",main = "Scatter plot for errors of prediction for AAA and BAA yields")
+
+# Covariance matirx of residuals of the cointegration model
+cor(cbind(cerrorA, cerrorB))
+```
+
+## 3. Model Comparison
+
+Compare the errors of the regression model with the cointegration model
+
+```{r}
+# linear regression errors for BAA, actual minus forecasted
+linreg.errors <- rbaa[-1] - forec
+
+# combine both models'  erros into matrix
+errors <- cbind(linreg.errors[-1], cerrorB)
+
+#plot both models' errors
+matplot(errors,type ="l",col = c("orange","blue"),main = "BAA Yield Errors for Regression and Cointegration Model")
+legend("topright", c("regression errors","cointegration errors"), lwd=2,col = c("orange","blue"), bty="n")
+```
+
+Here it appears that the variance level of cointegration errors is lower than the regression model's errors. Particularly in the first quarter of the time series.
+
+Check for a relationship between the errors of the two models
+```{r}
+plot(errors[,1],errors[,2],col = "black", 
+     main = "Scatter Plot of Regression model Errors vs Cointegration errors",
+     xlab="Regression Model Errors", ylab="Cointegration Model Errors")
+```
+There does  not appear to be a correlation between the errors of the two models.
+It appears that a linear regression model alone is not a valid model for this data. However, linear regression with ARMA errors as well as Cointegration, are both valid models for predicting the data. Furthermore, the Cointegration model did a better job of forecasting when comparing the variance of the errors of both valid models.
