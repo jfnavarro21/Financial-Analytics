@@ -1,0 +1,107 @@
+---
+title: "FA Homework 6"
+author: "John Navarro"
+date: "July 28, 2017"
+output: pdf_document
+---
+
+A stock index is currently at 810 and has volatility of 20%.
+The risk-free rate is 5% per year.
+Assume that dividend yield equals 1%
+
+```{r}
+# Install packages
+library(RQuantLib)
+```
+## 1. Price European 6-month call option with strike 800 using EuropeanOption()
+
+```{r}
+#Create and Assign variables
+hwUnderlying <- 810
+hwVolatility <- .20
+hwRate <- .05
+hwDivYield <- .01
+hwStrike <- 800
+hwMaturity <- .5
+
+# Use EuropeanOption to calculate Call value and greeks
+hwcall <- EuropeanOption(type="call", underlying = hwUnderlying, strike=hwStrike,
+                         dividendYield=hwDivYield, riskFreeRate=hwRate, maturity=hwMaturity,
+                         volatility=hwVolatility)
+
+# Return the call's price
+hwcall$value # 58.73271
+```
+
+## 2. Calculate the same premium manually using the formulas on the last slide of the lecture notes
+C=S0N(d1) - (K x exp(-RT))N(d2)
+
+d1=(ln(S0/k) + (R + .5sigma^2) x T)/(sigma x sqrt(T))
+
+d2=d1 - (sigma x sqrt(T))
+
+```{r}
+# Equation for d1
+d1=(log(hwUnderlying/hwStrike) + (hwRate + .5*(hwVolatility^2))*hwMaturity)/(hwVolatility*sqrt(hwMaturity))
+
+#Equation for d2
+d2 = d1 - (hwVolatility*sqrt(hwMaturity))
+
+# Equation for Call Value
+C = (hwUnderlying * pnorm(d1,0,1)) - ((hwStrike*exp(-hwRate * hwMaturity))* pnorm(d2,0,1))
+
+# Compare calculated value from part one with manually calculated call value in part 2
+cbind(calc_value=hwcall$value, manual_value=C)
+```
+
+Here we see that the two methods return different values.
+
+```{r}
+# Use EuropeanOption function with DivYield=0
+div0 <- EuropeanOption(type="call", underlying = hwUnderlying, strike=hwStrike,
+                         dividendYield=0, riskFreeRate=hwRate, maturity=hwMaturity,
+                         volatility=hwVolatility)
+
+# Compare the three call values
+cbind(calc_value=hwcall$value, manual_value=C, calc_value_div0=div0$value)
+
+```
+Here we see that if we use the EuropeanOption() function from part one, but set the Dividend Yield to 0, we get the same result as the manual calculations from the equations on Slide 17.
+
+*Think how dividend yield should affect option price.*
+
+It appears that higher the dividend yield, the lower the call price. We can account for the dividend yield by using it to discount the Underlying price in the C equation. Where Y is the dividend yield.
+
+C=S0 x (exp(-YT)) x N(d1) - (K x exp(-RT))N(d2)
+
+We would also have to account for it in the equation for d1.
+
+d1=(ln(S0/k) + (R - Y + .5sigma^2) x T)/(sigma x sqrt(T))
+
+However, the equation for d2 remains the same
+
+d2=d1 - (sigma x sqrt(T))
+
+## 3. Calculate the premium of put option with the same expiry and same strike using put-call parity
+
+Put = Call + Strike*exp(-RT) - Underlying x exp(-YT)
+```{r}
+# Use hwcall$value # 58.73271 from Part 1
+
+# Use Put Call Parity equation
+hwput.parity = hwcall$value + (hwStrike * exp(-hwRate*hwMaturity)) - (hwUnderlying*exp(-hwDivYield*hwMaturity))
+
+# Return the put's price
+hwput.parity # 33.02053
+
+# Use EuropeanOption to check put value
+hwput <- EuropeanOption(type="put", underlying = hwUnderlying, strike=hwStrike,
+                         dividendYield=hwDivYield, riskFreeRate=hwRate, maturity=hwMaturity,
+                         volatility=hwVolatility)
+
+# Return the put's price
+hwput$value #33.02053
+
+
+```
+
