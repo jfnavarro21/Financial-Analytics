@@ -1,0 +1,318 @@
+---
+title: "Workshop1week7"
+author: "John Navarro"
+date: "August 3, 2017"
+output: pdf_document
+---
+```{r}
+suppressWarnings(library(RQuantLib))
+suppressWarnings(library(fOptions))
+```
+
+```{r}
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week7_Options2"
+optionsData = read.csv(paste(datapath,'OptionsPrices.csv',sep='/'),header=TRUE,row.names=1,sep=",")
+dim(optionsData) #209 X 26
+head(optionsData)
+```
+
+The row names show the date of the closing prices.
+
+The columns are:
+Expiry - number of days until expiration;
+Opt Rate - risk-free rate for that date;
+Under - closing price of the underlying futures;
+S1:S11 - eleven strike prices for that day; strike prices are consecutive multiples of 5; strikes S1:S5 are below the current futures price, strikes S7:S11 are above the current futures price and strike S6 is the closest multiple of 5 to the current futures price;
+P1:P5 - put prices corresponding to strikes S1:S5;
+C6 - call price corresponding to strike S6;
+C7:C11 - call prices corresponding to strikes S7:S11;
+P1425 - put price with strike 1425.
+
+Plot the underlying price history.
+```{r}
+plot(optionsData$UndPr, type="b", xaxt="n", xlab="Date", ylab="Underlying Price")
+axis(side=1, at=1:length(optionsData$UndPr), rownames(optionsData))
+```
+
+## Library fOptions
+
+Notations:
+  - Stock price: S
+  - Strike price: X
+  - Expiry: Time
+  - Rate: r
+  - Volatility: sigma
+  - Carry: b  , ie annualized cost of carry rate b=r-q where q is annulaized dividend     rate
+The main functions of foptions are:
+
+### 1. Function GBSOption() for generalized Black-Scholes option pricing.
+    
+The function returns S4 object type
+```{r}
+# Calculate non dividend paying option. R=b, q=0
+(nonDividendStockOption <- GBSOption(TypeFlag = "c", S=60, X=65, Time=1/4, r=0.08, b=0.08, sigma=0.30))
+# return names of sections of summary
+slotNames(nonDividendStockOption)
+# return summary of option
+summary(nonDividendStockOption)
+# extract the price 
+nonDividendStockOption@price
+```
+Recall that parameter b is annualized carry rate, or in the case of dividend paying stocks, b=R-q. if b=R, that means that q=0.
+If b=0 then q=R and according to the formula on slides 8-9 of week 7 lecture Black scholes option pricing for dividend-paying stock becomes equivalent to Black's option pricing for futures option.
+```{r}
+# calculate call price for option where there is no carry, q=R
+(zeroCarryStockOption <- GBSOption(TypeFlag = "c", S=60, X=65, Time=1/4, r=0.08, b=0, sigma=0.3))
+# extract option price
+zeroCarryStockOption@price
+```
+The case b!=0, R corresponds to the general option on dividend paying stock
+
+###2. Function Black76Option() for Black's model for options on futures
+```{r}
+# Calculate options price on futures
+(futuresOption <- Black76Option(TypeFlag="c", FT=60,X=65,Time=1/4, r=0.08, sigma=0.30))
+# Return the slot names of the S4 object
+slotNames(futuresOption)
+# Return the price
+futuresOption@price
+```
+Here we see that it is the same as the non carry calculation above.
+
+###3. Function GBSGreeks() for Greeks of option priced by GBSOption()
+
+```{r}
+(zeroCarryStockOption.Greeks.delta <- GBSGreeks(Selection = "Delta", TypeFlag = "c", S=60, X=65, Time=1/4, r=0.08,b=0, sigma=0.30))
+```
+Other selections are gamma vega, theta and rho
+
+### 4. function GBSVolatility() is for implied volatitility
+```{r}
+(impvol <- GBSVolatility(futuresOption@price, TypeFlag="c",S=60, X=65, Time=1/4, r=0.08, b=0))
+```
+
+##3. Implied Volatilities using RQuantlib
+
+Create function implying volatility structure from put and call prices of one row of optionsData
+
+```{r}
+calculateImpliedVolatility <- function(dataRow){
+  # set inputs for arguments
+  myExpiry <- dataRow[1]/365
+  myRate <- dataRow[2]
+  myUnderlying <- dataRow[3]
+  myPutStrikes <- dataRow[4:8]
+  myCallStrikes <- dataRow[9:14]
+  myPutPrices <- dataRow[15:19]
+  myCallPrices <- dataRow[20:25]
+  # Calculate implied volatility for puts
+  impVolPuts <- apply(rbind(myPutPrices, myPutStrikes),2,
+                      function(z) EuropeanOptionImpliedVolatility("put", value=z[1],
+                                                                  underlying = myUnderlying,
+                                                                  strike=z[2],
+                                                                  dividendYield = myRate,
+                                                                  riskFreeRate = myRate,
+                                                                  maturity = myExpiry,
+                                                                  volatility=0.3))
+  # calculate implied volatility for calls
+  impVolCalls <- apply(rbind(myCallPrices, myCallStrikes),2,
+                       function(z) EuropeanOptionImpliedVolatility("call", value=z[1],
+                                                                   underlying = myUnderlying,
+                                                                   strike=z[2],
+                                                                   dividendYield = myRate,
+                                                                   riskFreeRate = myRate,
+                                                                   maturity=myExpiry,
+                                                                   volatility=0.3))
+  
+  # Combine the results, strikes, vols,
+  Result <-  cbind(Strikes=c(myPutStrikes, myCallStrikes), Volatilities=c(impVolPuts, impVolCalls))
+  # Label the rows Puts or Calls
+  rownames(Result) <- c(rep("P",5),(rep("C",6)))
+  Result
+}
+```
+Calculate implied volatilities of the first row of optionsData
+Check calculated implied volatilities by recovering options prices of the first row of optionsData
+```{r}
+# Assign the first row of the data to Row1Options
+Row1Options <- as.numeric(optionsData[1,])
+# Use the function to calculate implied volatilities for all strikes
+V.1 <- calculateImpliedVolatility(as.numeric(Row1Options))
+# Return matrix of volatilities
+V.1
+# Plot the volatilities
+plot(V.1, type="b")
+```
+Check that implied volatilitites recover the original options premia
+```{r}
+# create a vector of NAs
+premia <- rep(NA,11)
+# iterate over V.1 and populate the premia vector
+for (i in 1:11){
+  premia[i] <- unlist(EuropeanOption(type=ifelse(rownames(V.1)[i]=="P", "put", "call"),
+                                     underlying = Row1Options[3],
+                                     strike = V.1[i,1],
+                                     dividendYield = Row1Options[2],
+                                     riskFreeRate = Row1Options[2],
+                                     maturity = Row1Options[1]/365,
+                                     volatility = V.1[i,2]))[1]
+}
+# Create checkPremia, contains strikes, both premia calcs and the difference
+checkPremia <- cbind(strikes=Row1Options[4:14],
+                     calculatedOptionPremia=unlist(premia),
+                     originalOptionsPremia=Row1Options[15:25],
+                     differences=unlist(premia)-Row1Options[15:25])
+# Rename the rows from original data P1, P2... etc
+rownames(checkPremia) <- colnames(optionsData)[15:25]
+# Return checkPremia
+checkPremia
+```
+
+Plot volatility skew for the first 3 days of the data.
+The underlying price during the first 3 days was
+```{r}
+# return closing price of underlying for first 3 days
+optionsData[1:3,3]
+```
+Calculate implied volatilities and create the plot
+```{r}
+#Calculate the  implied vols for day 2 and 3
+V.2 <- calculateImpliedVolatility(as.numeric(optionsData[2,]))
+V.3 <- calculateImpliedVolatility(as.numeric(optionsData[3,]))
+# create bounds of the minimum of the strikes from the 3 days, and the max of the strikes from the 3 days
+xBounds <- c(min(V.1[,1],V.2[,1],V.3[,1]), max(V.1[,1],V.2[,1],V.3[,1]))
+# Create a sequence of strikes that goes from the min strike to the max strike in  xBounds, by 5
+plotData.Strikes <- seq(from=xBounds[1], to=xBounds[2], by =5)
+# Create an empty vector, plotData that is the same length as the sequence of strikes
+plotData <- rep(NA, 3*length(plotData.Strikes))
+# rearrange the vector to a matrix
+dim(plotData) <- c(length(plotData.Strikes),3)
+# create plotData matrix, that contains strikes and 3 columns of NAs for the volatilities of each day
+(plotData <- cbind(plotData.Strikes,plotData)) 
+
+```
+```{r}
+# populate each days set of volatilities, that are around the underlying
+plotData[match(V.1[,1],plotData.Strikes),2] <- V.1[,2]
+plotData[match(V.2[,1],plotData.Strikes),3]<-V.2[,2]
+plotData[match(V.3[,1],plotData.Strikes),4]<-V.3[,2]
+# return the matrix
+plotData
+
+# plot the data
+# X= strikes, Y= 3 columns of vols
+matplot(plotData[,1], plotData[,-1], type="l", lty=1, col=c("blue","green","red"),xlab="Strike", ylab="Implied Volatilities")
+# create vertical lines showing the ATM strike on each day
+abline(v=V.1[6,1], col="blue")
+abline(v=V.2[6,1], col="green")
+abline(v=V.3[6,1], col="red")
+# Create the legend
+legend("topright", legend=c("Day1","Day2","Day3"), col=c("blue","green","red"), lty=1)
+```
+Calculate ATM implied vol for the whole period
+Plot ATM implied vols and underlying price.
+Analyze periods of changes in teh underlying price and the corresponding changes in the implied volatility
+```{r}
+# calculate the ATM implied vol for each day in the data set. use calculateImpliedVolatility function, and extract the element of the ATM implied vol. Multiply each value by 100, for ease.
+# Use as.vector to remove rownames(dates)
+(volatilitiesATM <- as.vector(apply((optionsData), 1, function(z) calculateImpliedVolatility(z)[6,2]))*100)
+
+# Show a plot of the futures price and ATM implied vol over time
+# assign space for 2 plots, one above the other
+par(mfrow=c(2,1))
+# first plot is x=date, y=daily futures price
+plot(optionsData$UndPr, xaxt="n", type="l", col="black", xlab="Date", ylab="Futures Price")
+# force x axis to be marked by dates
+axis(side=1, at=1:length(optionsData$UndPr), rownames(optionsData))
+# second plot x=date, y=implied vols from volatilitiesATM
+plot(volatilitiesATM, type="l", xlab="Date", ylab="ATM implied vol", col="black", xaxt="n")
+# Force x axis to be marked by dates
+axis(side=1, at=1:length(optionsData$UndPr), rownames(optionsData))
+```
+Explore the relatioinship on X-Y plot of the same variables
+```{r}
+plot(optionsData$UndPr, volatilitiesATM, type="l", xlab="Futures price", ylab="ATM vols")
+```
+
+Calculate implied volatilites of put with strike 1425 for the entire period
+
+```{r}
+# Use europeanoptionimplied vol() over each row of optionsData, use as.vector to eliminate dates and multiply by 100 to show in percent
+put1425.impliedVolatilities <- as.vector(apply(optionsData, 1, function (z) EuropeanOptionImpliedVolatility("put", value=z[26], underlying=z[3], strike=1425, dividendYield = z[2], riskFreeRate = z[2], maturity = z[1]/365, volatility = 0.3)))*100
+# return head of implied 1425p vols
+head(put1425.impliedVolatilities)
+# plot the vols over time
+plot(put1425.impliedVolatilities, xaxt="n")
+axis(side=1, at=1:length(optionsData$UndPr), rownames(optionsData))
+# plot with time to expiry in days(time reversed)
+plot(optionsData$Expiry, put1425.impliedVolatilities)
+```
+
+*Explain behavior of implied volatility close to expiration.*
+
+Volatility changes as you get closer to expiration. here we see that it becomes higher, and more jumpy. The jumpiness can be due to trade flow as market participants are exiting positions and rolling to the next contract. Another reason could be that if the underlying is close to the strike, every time it crosses the strike price, this results in big jumps in option value and deltas/gammas.
+
+The reason that the implied vol gets high is during the period close to expiration, an options minimum value is allowed to drop from .25 to .05. In order to get the option value to becomes very small you need to boost vol very high.
+
+Calculate option premium for 1425-put for the whole period
+```{r}
+# Calculate the option value
+optionsData2 <- cbind(optionsData, put1425.impliedVolatilities)
+head(optionsData2)
+put1425History <- c()
+put1425History <- as.vector(apply(optionsData2, 1, function(z) EuropeanOption(type="put",
+                                     underlying = z[3],
+                                     strike = 1425,
+                                     dividendYield = z[2],
+                                     riskFreeRate = z[2],
+                                     maturity = z[1]/365,
+                                     volatility = z[27]/100)$value))
+# Plot the data
+plot(put1425History, xaxt="n")
+# relabel the X axis to be dates
+axis(side=1, at=1:length(optionsData$UndPr), rownames(optionsData))
+# highlight the last 50 days of trading in blue
+points(c(rep(NA,length(put1425History)-50),tail(put1425History,50)),col="blue")
+# draw two horizontal lines, one at price of 5 and one at price 0.05
+abline(h=5)
+abline(h=.05,col="red")
+
+```
+Black horizontal line is at premium level 5.
+Below it the tick size is reduced from 0.25 to 0.05.
+Red horizontal price is at level 0.05.
+Option price cannot be less than this level.
+
+Find option premimum and Greeks of 1425 put on 2/26/2007
+```{r}
+# Use europeanoption() to calculate put value and greeks of 1425 p on 2/26/2007
+currentPutValue <- EuropeanOption(type="put",underlying = optionsData[1,3], strike = 1425, maturity = optionsData[1,1]/365, riskFreeRate = optionsData[1,2], volatility =put1425.impliedVolatilities[1]/100 , dividendYield = optionsData[1,2])
+# Return the value and greeks
+currentPutValue
+```
+Calculate the breakdown of 1425-put P&L between 2/26/07 and 2/27/07 into delta gama and vega buckets
+First find estimated delta, gamma and vega P&L using forula on slide 15 for this week
+```{r}
+# delta pnl= delta* change in price
+putPNL.delta<-as.numeric(currentPutValue)[2]*(optionsData[2,3]-optionsData[1,3])
+# gamma pnl= (1/2) * gamma * (change in price)^2
+putPNL.gamma<-.5*as.numeric(currentPutValue)[3]*(optionsData[2,3]-optionsData[1,3])^2
+# vega pnl= (vega/100) * change in implied volatility
+putPNL.vega<-as.numeric(currentPutValue)[4]/100*
+  (put1425.impliedVolatilities[2]-put1425.impliedVolatilities[1])
+# return the greek PNLs
+(putPNL.estimated<-c(delta=putPNL.delta,gamma=putPNL.gamma,vega=putPNL.vega))
+```
+
+```{r}
+# Calculate the sum of the greek pnls
+(putPNL.estimatedTotal<-sum(putPNL.estimated))
+# Calculate the actual put pnl
+(putPNL.actual<-optionsData[2,26]-optionsData[1,26])
+
+```
+Compare the estimated P&L for put with strike 1425 between 2/26/2007 and 2/27/2006 with the actual P&L for these 2 days.
+```{r}
+c(estimated=putPNL.estimatedTotal,actual=putPNL.actual,unexplained=putPNL.estimatedTotal-putPNL.actual)
+```
+
