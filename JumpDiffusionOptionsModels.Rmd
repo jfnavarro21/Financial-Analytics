@@ -1,0 +1,220 @@
+---
+title: "Workshop2"
+author: "John Navarro"
+date: "August 3, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(NMOF)
+```
+
+## Diffusion process
+
+dSt=mu*dt + sigma x dwt, where St is stock price, mu is drift, sigma is vol, wt is weiner process
+
+Definition of Weiner process is
+1. w0=0 with probability 1
+2. wt has independent increments: wt+deltat -wt ( difference of wt at some change in time)is independent of any values or increments priot to t
+3. delta wt is normally distributed, w mean 0, sd is sqrt of delta t. iid random variables
+4. No jumps: wt has continuous paths with probability 1, ie almost all trajectories of wt are continuous functions of t
+
+From the definition of diffusion process it follows that 
+
+St(plus delta t) = St + mudeltat +sigma delta et, where et is N(0,1)
+
+Simulate such process St
+
+Deterministic part
+```{r}
+S0 <- 10
+mu <- .1
+time <- seq(from=0, to=1, by=1/365)
+dt <- diff(time)
+drift <- S0*cumsum(mu*dt)
+
+```
+And the stochastic part
+```{r}
+sigma <- .25
+eps <- replicate(10, cumsum(rnorm(length(dt))))
+dim(eps) <- (c(365,10))
+```
+Then the price process is a drift, plus random walk
+```{r}
+Price <- apply(eps, 2, function(z) S0+drift+sigma/sqrt(365)*z)
+matplot(time[-1],Price, type="l", lty=1, xlab="Time(year)")
+lines(time[-1],S0+drift, col="black", lty=1, lwd=2)
+
+```
+Deficiency of pure diffusion price model
+1. Because diffusion process behaves like a random walk with continuous trajectories, it is impossible to model large moves in a short period of time, unless volatility (sigma) is very high or even infinite, ie probablitity of quick large moves is too small. This implies that theoretical prices of very short term out of the money options are much lower than real prices.
+
+2. Theoretically, in an economy where jumps of asset prices are possible, every future payoff can be replicated exactly. Thus hedging portfolios with options is not necessary, which makes options redundant. However when asset price can have jumps hedgeing of one asset or portfolio payoff with underlying is not possible, which makes options a necessary and importnat trading instrument.
+
+## Jump diffusion process
+
+Any jump diffusion price  model is constructed of 2 parts, and poisson jump process that has unit jumps with intervals between jumps being independent exponenetial random variables with intesity paramaeter lambda
+
+Poisson process, like diffusion process has stationary and independent increments. Such processes w independent stationary increments are called Levy processes.
+
+A lot more realistic and useful processes than Poisson processes have not deeterministic unit jumps but random variables Xt, independent from each other and independent from the poisson counting process. These are ccalled compound poisson processes
+
+In other words, compound poisson process has random independt jumps Xt over exponentially distributed independent time increments, Jumps Xt are price impacts of jump events
+
+Merton's process
+Simplest jump diffusion process
+
+Variance gamma processes
+This can be viewed as random walk with time warped by gamma process, where delta t is replaced with gamma distributedGt
+
+Variance gamma process also results in a distribution(variance gamma) that belongs to Generalized Hyperbolic Distributions
+
+## Comparison of option pricing by Black Scholes Merton and Merton's jump diffusion models
+
+set main parameters of optons
+
+```{r}
+# Set main parameters
+S <- 100 # underlying price
+X <- 100 # strike price
+tau <- 1 # expiry
+r <- 0.0075 # rate
+q <- 0.00 # dividend rate
+v <- 0.2^2 # variance
+lambda <- 1 # intensity of jumps
+muJ <- -0.2 # mean value of jumps
+vJ <- 0.6^2 # variance of log jump size
+N <- 20 # number of jumps
+```
+Create vector of strikes
+```{r}
+Xvec <- seq(from=80, to=116, by=1)
+# Price an atm call option by jump diffusion model
+(oneCall <- callMerton(S,X,tau,r,q,v,lambda, muJ,vJ,N,implVol=T))
+# Put is calculated by put call parity
+(onePut <- putCallParity("put", call=oneCall$value, S=S, X=X, tau=tau, r=r, q=0, tauD=0, D=0))
+
+# what is tauD and D for? 
+```
+```{r}
+# Calculate volatility structure. Strikes, option values, implied vols
+(calls <- cbind(Xvec, t(sapply(Xvec, function (z) callMerton(S, z, tau = tau, r, q=0, v, lambda, muJ, vJ, N, implVol = T)))))
+
+# plot calls, strikes vs vol, no prices
+plot(calls[,-2], type="b")
+```
+```{r}
+# Calculate puts by put call parity
+puts<-cbind(Strikes=Xvec,
+            Puts=putCallParity("put", call=unlist(calls[,"value"]), 
+                               S=S,X=Xvec, tau=tau, r=r, q = 0, tauD = 0, D = 0))
+# Calculateimplied vols using vanillaOptionImpliedVol
+putImpliedVols<-apply(puts[,1:2],1, function(z) 
+  vanillaOptionImpliedVol(exercise ="european",price=z[2],S=S,X=z[1],
+                          tau=tau, r=r,q = 0, tauD = 0, D = 0, 
+                          type = "put",M = 101,uniroot.control = list(), 
+                          uniroot.info = FALSE))
+# combine Strikes and implied vols
+putImpliedVols <- cbind(Xvec, putImpliedVols)
+
+# plot strikes vs implied vols of calls and puts
+plot(Xvec, calls[,3], ylab="Implied Volatility", xlab="strike", col="black")
+points(putImpliedVols, col="red", pch=15)
+```
+Both implied vol curves coinside. Important feature of jump-diffusion pricing model:constant variance of diffusion, intensity of jumps and variance of impacts result in volatility strike skew
+
+##############Why is this?##############
+
+```{r}
+
+################What  does this show? sum of strike and put value, breakeven for long put position???####
+apply(puts, 1, function(z) sum(z))
+```
+
+```{r}
+# calculate the implied vol using call vaalue
+vanillaOptionImpliedVol(exercise ="european", price=oneCall$value, S=S, X=X, tau=tau, r=r,
+                        q = 0, tauD = 0, D = 0, type = "call",M = 101,
+                        uniroot.control = list(interval=c(.01,.95)), uniroot.info = FALSE)
+# calculate the imploied vol using the put value
+vanillaOptionImpliedVol(exercise ="european", price=puts[20,][2], S=S, X=puts[20,][1]+.5, tau=tau, r=r,
+                        q = 0, tauD = 0, D = 0, type = "put",M = 101,
+                        uniroot.control = list(interval=c(.1,.8)), uniroot.info = FALSE)
+
+vanillaOptionEuropean(S,Xvec,tau,r,q,v, greeks = FALSE)
+```
+
+Explore the role of jumps
+
+```{r}
+# create table with strikes, and value and implied vols from JD model (Merton)
+(callsN50<-cbind(Xvec,
+             t(sapply(Xvec,function(z) callMerton(S, z, tau=tau, r, 
+                                                  q=0,v, lambda, muJ, vJ, N=100, implVol = TRUE)))))
+```
+```{r}
+# plot the implied vols at each strike
+plot(Xvec, calls[,3], type="l")
+points(Xvec, callsN50[,3], col="red")
+```
+The values from both methods are overlayed on each other
+
+Change in the parameter N does not seem to make any difference.
+
+Call prices with intensity of jumps equal to zero
+
+```{r}
+lambda <- 0 ## no jumps
+(calls.noJumps<-cbind(Xvec,
+             t(sapply(Xvec,function(z) callMerton(S, z, tau=tau, r, 
+                                                  q=0,v, lambda, muJ, vJ, N, implVol = TRUE)))))
+```
+Implied volatilities of calls with zero jump intensity.
+```{r}
+(calls.noJumps.ImpliedVols<-apply(calls.noJumps[,1:2],1, function(z) 
+  vanillaOptionImpliedVol(exercise ="european",price=unlist(z[2]),S=S,X=unlist(z[1]),tau=tau,r=r,q = 0,
+                          tauD = 0,D = 0,type = "call",M = 101,uniroot.control = list(), 
+                          uniroot.info = FALSE)))
+```
+
+For comparison calculate call prices with B-S-M and their implied volatilities.
+```{r}
+calls.BSM<-cbind(Strikes=Xvec,Calls=vanillaOptionEuropean(S,Xvec,tau,r,q,v, greeks = FALSE))
+(calls.BSM.ImpliedVols<-apply(calls.BSM[,1:2],1, function(z) 
+  vanillaOptionImpliedVol(exercise ="european",price=z[2],S=S,X=z[1],tau=tau,r=r,q = 0,
+                          tauD = 0,D = 0,type = "call",M = 101,uniroot.control = list(), 
+                          uniroot.info = FALSE)))
+```
+
+Plot 3 implied volatility strike skews and interpret differences.
+
+```{r}
+plot(Xvec,calls[,3],ylim=c(0.15,.7),ylab="Implied Volatility",xlab="Strike")
+points(Xvec,calls.noJumps.ImpliedVols,col="red")
+points(Xvec,calls.BSM.ImpliedVols,type="l",col="blue")
+```
+
+Create call prices with positive jump intensity, but zero mean and variance of impacts.
+```{r}
+lambda <- 1 
+muJ <- 0 
+vJ <- 0.0^2  ## no jumps, either
+(calls.zeroImpact<-cbind(Xvec,
+             t(sapply(Xvec,function(z) callMerton(S, z, tau=tau, r, 
+                                                  q=0,v, lambda, muJ, vJ, N, implVol = TRUE)))))
+
+(calls.zeroImpact.ImpliedVols<-apply(calls.zeroImpact[,1:2],1, function(z) 
+  vanillaOptionImpliedVol(exercise ="european",price=unlist(z[2]),S=S,X=unlist(z[1]),tau=tau,r=r,q = 0,
+                          tauD = 0,D = 0,type = "call",M = 101,uniroot.control = list(), 
+                          uniroot.info = FALSE)))
+```
+Compare with previous volatility curves
+```{r}
+plot(Xvec,calls[,3],ylim=c(0.15,.7),ylab="Implied Volatility",xlab="Strike")
+points(Xvec,calls.noJumps.ImpliedVols,col="red")
+points(Xvec,calls.BSM.ImpliedVols,type="l",col="blue")
+points(Xvec,calls.zeroImpact.ImpliedVols,type="p",col="green",pch=19)
+```
+Merton shows vols high,
+other methods Black scholes, and Merton with zero impact mean/variance and vols with zero jump intensity all match at the low vol plot points. 
