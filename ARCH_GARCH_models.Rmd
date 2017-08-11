@@ -1,0 +1,410 @@
+---
+title: "Workshop FA 1 Week 8"
+author: "John Navarro"
+date: "August 10, 2017"
+output: pdf_document
+---
+
+
+# 1 Check for ARCH effect
+
+## 1.1 Monthly log-returns of Intel 1973-2009
+
+### 1.1.1 Preliminary analysis
+
+Read the data for monthly Intel log-returns and create returns
+
+```{r}
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week8_ARCHGARCH"
+da=read.table(paste(datapath, "m-intcsp7309.txt", sep="/"), header=T)
+head(da)
+```
+```{r}
+# take log of returns
+intc=log(da$intc+1)
+
+# create a time series from the data
+rtn=ts(intc, frequency=12, start=c(1973,1))
+
+# plot the returns
+plot(rtn, type="l", xlab="year", ylab="ln-rtn")
+
+# test  null hypothesis: Mean equal zero
+t.test(intc)
+```
+We reject the null hypothese, so mut = mu +et, and can be modeled by a stationary time series
+
+Run Box Ljung test, H0: Serial correlations are zero
+```{r}
+Box.test(intc, lag=12, type="Ljung")
+```
+We cannot reject the null hypothesis that the serial correlations are zero.
+
+Plot ACF of returns and ACF of absolute returns
+```{r}
+par(mfcol=c(2,1))
+acf(intc, lag=24)
+acf(abs(intc), lag=24)
+```
+When we look at the ACF of the INTC returns, we do not see any strong correlations at any lag. However, when we look at the absolute value of the returns, it looks like long memory process, with several bars outside the bounds. 
+
+Run Box-Ljung test on the absolute value of INTC
+```{r}
+Box.test(abs(intc), lag=12, type="Ljung")
+```
+Here we have a significant p-value and can say that we reject the null hypothesis of no correlations.
+The results above show that the monthly log-returns of Intel stock price aree uncorrelated, but dependent.
+
+### 1.1.2 Testing for ARCH effect
+
+ARCH test
+```{r}
+y=intc-mean(intc)
+Box.test(y^2, lag=12, type="Ljung")
+```
+Here we see that we reject the null hypothesis, and that there is serial correlation between y squared. This is an indication of ARCH effect.
+
+The sourced script archTest.R is on the author's website, it applies Engle's test
+```{r}
+archTest <- function(rtn,m=10){
+  # Perform Lagrange Multiplier Test for ARCH effect of a time series
+  # rtn: time series
+  # m: selected AR order
+  #
+  y=(rtn-mean(rtn))^2
+  T=length(rtn)
+  atsq=y[(m+1):T]
+  x=matrix(0,(T-m),m)
+  for (i in 1:m){
+    x[,i]=y[(m+1-i):(T-i)]
+  }
+  md=lm(atsq~x)
+  summary(md)
+}
+```
+
+```{r}
+archTest(y,12)
+```
+This output confirms ARCH effect
+
+**************************1
+******************Can this be explained? what output are we looking at? 
+*****************significant p values or coeff?? also why do we center data around the mean *****************before squaring ? don't do this for ACF
+
+## 1.2 EUR/USD foreign exchange rate
+
+The following time series is daily EUR/USD exchange rate from Jan1999 to august2010
+
+```{r}
+# Read in the data
+fx=read.table(paste(datapath,"d-useu9910.txt", sep="/" ), header=T)
+
+# look at the data
+head(fx)
+tail(fx)
+
+# take the log diff of the data
+fxeu=log(fx$rate)
+eu=diff(fxeu)
+
+#plot the log diffs
+plot(eu)
+```
+here we see mean reversion, but non constant variance. Lets look at ACF plots
+```{r}
+acf(eu)
+```
+The ACF of the series does not show any non-stationarity
+
+```{r}
+Box.test(eu, lag=20, type="Ljung")
+```
+Here we see a small pvalue, but if we choose the standard 5% threshold, we say that we cannot reject the null hypothesis. There is no serial correlation in the data series.
+```{r}
+# t-test, H0: mean is 0
+t.test(eu)
+
+```
+We canot reject the null hypothesis that the mean is zero.
+This means that the model for the mean is rt=et
+
+However, ACF and PACF for squared returns show significant correlation structure and thus ARCH effect
+
+```{r}
+# acf of squared data
+acf(eu^2)
+
+# pacf of squared data
+pacf(eu^2)
+```
+PACF of the squared returns can be used for identification of ARCH, it shows high order of ARCH model. Confirm this by Box-Ljung and archTest
+
+```{r}
+Box.test(eu^2, lag=20, type="Ljung")
+```
+We can reject the null hypothesis and say there are auto correlation in the squared data
+```{r}
+archTest(eu,20)
+```
+significant p value tells us there is an ARCH effect
+
+# 2 Model volatility of returns
+
+## 2.1 Monthly Intel stock returns
+
+```{r}
+# Read the data
+library(fGarch)
+da=read.table(paste(datapath, "m-intcsp7309.txt",sep="/"), header=T)
+head(da)
+```
+```{r}
+intc=log(da$intc+1)
+# look at ACF and PACF of squared returns
+par(mfrow=c(2,1))
+acf(intc^2)
+pacf(intc^2)
+```
+PACF shows us 3 significant lags, also maybe at lag 12 aswwell. Try ARCH(3) modle
+
+```{r}
+m1 <- garchFit(~1+garch(3,0),data=intc, trace=FALSE)
+summary(m1)
+```
+Here we see that the parameters alpha 2 and alpha3 are not significant, so we can simplify the model to first order ARCH
+```{r}
+m2 <- garchFit(~garch(1,0), data=intc, trace=FALSE)
+summary(m2)
+```
+
+the resulting model is 
+    rt=mu +at
+    at=sigmat X et
+    sigmat^2 = alpha0 + alpha1 X at-1^2
+
+where we have mu = 0.01313 alpha0= 0.0110463, alpha1=0.3749758
+
+The Jarque Bera test is a goodness of fit test of whether sample data have the skewness and kurtosis matching a normal distribution
+
+The Shapiro-Wilk test is a test of normality
+
+LM ARCH test is a Lagrange Multiplier test for ARCH effect that has H0: Homoscedastickity
+
+Analyze the results
+```{r}
+resi=residuals(m2, standardize=T)
+tdx=c(1:444)/12+1973
+par(mfcol=c(3,1))
+plot(tdx, resi, xlab="year", ylab="residuals")
+acf(resi, lag=20)
+pacf(resi^2, lag=20)
+
+
+```
+
+The ACF plot shows that standardized residuals do not have autocorrelation
+The PACF for squared residuals show significatn correlation at higher lags.
+
+***************** 2
+
+******************Why are we looking at PACF of squared residuals. For ARCH effect, shouldnt we be looking at squared returns?
+lag=12 has high correlation, seasonal data?
+
+
+Conclusions about ARCH(1) model
+1. Expected monthly log return is 1.31% including period after the .com bubble and the crisis. **************** Is this mu?
+2. The estimate of alpha1 squared is less than 1/3 which means that kurtosis exists
+3. The model is adequate and can be used for prediction
+*************** Despite what we see in the PACF plot?
+
+
+Try using Student innovations
+```{r}
+m3=garchFit(~1+garch(1,0), data=intc, trace=FALSE, cond.dist="std")
+summary(m3)
+```
+Note the BoxLjung test for squared returns. They show that the volatility equation is not adequate. Using heavy tails reduced ARCH coefficient. In general the difference between the two models with or without heavy tails for innovations is not significant.
+
+
+## 2.2 EUR/USD exchang rate
+```{r}
+par(mfcol=c(2,1))
+acf(eu^2)
+pacf(eu^2)
+```
+The PACF for squared rates suggest ARCH (11)
+```{r}
+mm1 <- garchFit(~garch(11,0), data=eu, trace=FALSE)
+summary(mm1)
+```
+All ljug box tests look fine,
+
+Note that Shapir wilk test failed: there is a problem with normailty
+
+## 2.3 Fitting GARCH(1,1) to monthly log returns of INtel
+
+### 2.3.1 Gaussian innovations
+
+Fit GARCH(1,1) w gaussian innovations
+```{r}
+m4 <- garchFit(~garch(1,1), data=intc, trace=FALSE)
+summary(m4)
+```
+
+
+
+*************** 3
+**************These are the variances/std dev/ means at each t in the time series. the data points that affect current t are determined by the order of the GARCH model?
+
+
+
+```{r}
+# What slots can we extract?
+slotNames(m4)
+head(m4@fitted)
+head(m4@h.t)
+head(m4@sigma.t)
+```
+The object contains the following important slots
+
+  - h.t:vector of conditional variances
+  - sigma.t: vector of conditional standard deviations
+  - fitted: the mean of the time series
+  
+All parameters are significant. Normality test by Shapiro-Wilk fails. Not a normal distribution
+
+Plot standardized residuals and conditional variances
+```{r}
+v1 <- m4@h.t
+resi <- residuals(m4, standardize=T)
+vol=ts(v1, frequency=12, start=c(1973,1))
+res=ts(resi, frequency=12, start=c(1973,1))
+par(mfcol=c(2,1))
+plot(vol, xlab="year", ylab="volatility", type="l")
+plot(resi, xlab="year", ylab="stand residuals", type='l')
+```
+Standardized residuals have only a few outliers, looks pretty good. Conditional variances show characeristic jumps and clustering. Volatility was high during the oil crisis 1973-1974. Also volatility was high around 2000, beginning of Kondratiev winter
+
+Plot ACF and PACF of the standarized residual and theri squares
+
+```{r}
+par(mfcol=c(2,2))
+acf(resi, lag=24)
+pacf(resi, lag=24)
+acf(resi^2, lag=24)
+pacf(resi^2, lag=24)
+```
+
+The only lag tha stands out is 12. In general the model seems adequate.
+
+Plot log-returns with the predictive intervals mu+/-sigmat.
+Note that in order to reproduce the Figure 4.11 from the book you need to take square root of v1
+
+```{r}
+# Obtain plot of predictive intervals
+par(mfcol=c(1,1))
+# Calculate 95% CI bounds
+upp=0.0113+2*sqrt(v1)
+low=0.0113-2*sqrt(v1)
+# time index
+tdx=c(1:444)/12+1973
+plot(tdx, intc, xlab="Date", ylab="log returns", type="l", ylim=c(-0.6,0.6))
+lines(tdx, upp, lty=2, col="red")
+lines(tdx, low, lty=2, col="red")
+abline(h=m4@fitted[1])
+
+```
+
+### 2.3.2 Student innovations
+
+Obtain the same model w studend innovations
+
+```{r}
+m5=garchFit(~garch(1,1), data=intc, trace=FALSE, cond.dist="std")
+summary(m5)
+```
+
+all coefficients are significant, and all tests on residuals look good. AIC is slightly better than for model with normal innovations
+
+### 2.3.2 Skewed Student innovations
+
+Estimate the model with skewed Student distributions(parameter sstd)
+```{r}
+v2 <- m5@h.t
+m6 <- garchFit(~garch(1,1), data=intc, trace=FALSE, cond.dist="sstd")
+summary(m6)
+```
+```{r}
+# Extract the variance from the skewed student GARCH model
+v3 <- m6@h.t
+```
+The estimated skew parameter is 0.8717220 and its stand dev is 0.0629129. This parameter is significant. AIC is marginally better than for the model without skew
+
+All 3 GARCH(1,1) models are adequate for describing the Intel log-returns
+Using AIC for formal selection of the model will prefer the model with skewed Studnt innovations. At the same time the best choise by BIC is the non-skewed Student distribution for innovations. The reason for that is heavier penalty that BIC puts for each extra parameter.
+Plot the volatilities estivmated by the 3 models
+
+```{r}
+plot(tdx, sqrt(v1), xlab="Date", ylab="volatility", type = "l", col="black")
+lines(tdx,sqrt(v2),xlab='year',ylab='volatility',type='l',col="red")
+lines(tdx,sqrt(v3),xlab='year',ylab='volatility',type='l',col="blue")
+legend("topright", legend=c("Gaussian", "Student-t","Skew Student-t"), col=c("black", "red","blue"),lty=1, lwd=2)
+```
+Look at the cross correlation matrix
+```{r}
+cor(cbind(v1,v2,v3))
+```
+
+All 3 are practically the same
+
+### 2.3.4 Evaluating volatility forecasts
+
+Volatility is a latent(unobservable) variable
+This makes evaluation of vol models forecasting difficult
+Some researchers do out of sample forecsating and compare the forecasts sigma sqd with observsed a squared.
+But as any case of estimating parameter from one observation it is very inaccurate
+Compare volatility estimated by GARCH with historical realized vol.
+```{r}
+library(zoo)
+# calculate realized volatility, 10 period window
+realizedVolatility <- rollapply(intc, width=10, partial=T, by=1, sd)
+
+# plot GARCH daily vol and rolling realized vol over time
+matplot(1:length(intc), cbind(m4@sigma.t, realizedVolatility), type="l", lty=1,lwd=2)
+legend("topright", legend=c("GARCH", "Realized"), col=c("black", "red"), lty=1, lwd=2)
+```
+```{r}
+# conf interval for GARCH - GAUSSIAN
+uppGarch=m4@fitted+2*m4@sigma.t
+lowGarch=m4@fitted-2*m4@sigma.t
+
+# Conf interval for realized vol
+uppReal=m4@fitted+2*realizedVolatility
+lowReal=m4@fitted-2*realizedVolatility
+
+# time index
+tdx=c(1:444)/12+1973
+
+# plot intel returns over time
+plot(tdx,intc,xlab='year',ylab='series',type='l',ylim=c(-0.6,0.6))
+
+# add conf int for GARCH
+lines(tdx,uppGarch,lty=2,col='red')
+lines(tdx,lowGarch,lty=2,col='red')
+
+# add conf int for realized vol
+lines(tdx,uppReal,lty=2,col='blue')
+lines(tdx,lowReal,lty=2,col='blue')
+
+# add first fitted value
+abline(h=m4@fitted[1])
+
+# add legend
+legend("topright",legend=c("GARCH","Realized"),
+       lty=1,col=c("red","blue"),lwd=2)
+```
+
+
+
+
