@@ -1,0 +1,842 @@
+---
+title: "FA Week 10 Workshop"
+author: "John Navarro"
+date: "August 24, 2017"
+output: pdf_document
+---
+
+# 1 Concept of VaR
+
+Create an input-output pair for illustration of VaR.
+```{r}
+# set seed for reproducibility
+set.seed(83746)
+# create random values for X
+X <- rnorm(500,1,2)
+# linear combination plus random errors for Y
+Y <- 2*X+1+rnorm(500,0,2.5)
+# scatterplot of the data
+plot(X,Y)
+```
+Variable Y can be interpreted as the return of a portfolio over the time horizon period expressed in percentage points.
+Variable X can be interpreted as a single factor of risk, for example a broad market, like S&P 500 or the first principal component of the portfolio of stocks.
+Create the density plot and the corresponding normal density of return Y or loss ???Y.
+```{r}
+# calculate density of Y and VaR
+dens <- density(Y)
+VaR <- qnorm(.01, mean(Y),sd(Y))
+# plot the density distribution and a normal dist w same mean and sd,mark the 99% quantile
+plot(dens, type="l", lwd=2)
+lines(dens$x, dnorm(dens$x,mean(Y), sd(Y)), col="red", lwd=2)
+abline(v=VaR, col="red", lwd=2)
+```
+Vertical line shows 1%-quantile of the normal distribution of returns or 99%-quantile of the distribution of loss.
+Loss beyond the level of the 99%-quantile is ignored.
+Loss at the 99%-quantile level is considered the worst loss, this is the cost of business or value at risk VaR; absolute value of that number is the amount of capital that needs to be reserved to sustain the worst loss.
+Range of levels of the predictor X leading to the worst loss shows scenarios of the risk factor in which the worst loss occurs.
+```{r}
+# plot the points
+plot(X,Y, pch=16)
+# highlight the losses that are beyond VaR
+points(X[Y<=VaR], Y[Y<=VaR], col="red", pch=16)
+abline(v=c(max(X[Y<=VaR])),col="red")
+abline(h=max(Y[Y<=VaR]),col="red")
+```
+Alternative way: if there is a strong linear relationship between the loss variable and the market risk factor
+Y=2X+1,
+then look at the tails of X and make scenarios, one for each tail.
+```{r}
+# create a density distribution of the X values
+dens <- density(X)
+# calculate the quantile levels for the tails
+tailX.1 <- qnorm(.01,mean(X),sd(X))
+tailX.2 <- qnorm(.99, mean(X),sd(X))
+# plot the density distribution, plus a normal density curve with same mean and sd in red
+plot(dens, type="l", lwd=2)
+lines(dens$x,dnorm(dens$x,mean(X),sd(X)),col="red",lwd=2)
+# mark the tails
+abline(v=tailX.1,col="red",lwd=2)
+abline(v=tailX.2,col="red",lwd=2)
+```
+Then estimate loss at each of the scenarios and selsect scenario with the worst average loss as the worst case scenario
+```{r}
+# fit a linear model the the risk factor explaining the portfolio returns
+mdl <- lm(Y~X)
+# Calculate the return given the two tail points
+Tail.X1.loss <- predict(mdl, newdata=data.frame(X=tailX.1))
+Tail.X2.loss<-predict(mdl,newdata=data.frame(X=tailX.2))
+c(Tail.X1.loss,Tail.X2.loss)
+```
+The worst case is at the scenario Tail.X1.
+
+##1.2 State Space of 2 PCA Factors
+
+What if there are two market risk factors, for example, two first factors from PCA?
+
+Change the interpretation of X and Y to the state-space variables of risk factors.
+Then the rare events are defined in terms of concentration ellipses.
+```{r}
+dataEllipse(X,Y,levels=c(.99,.86466),ylim=c(-17,17))
+```
+Search for worst scenarios on or inside the concentration ellipse of appropriate level.
+
+Risk measure calculation for the S&P 500 stocks portfolio returns during 2014.
+
+Ellipse has same probability along the ellipse line. Generalization of the conf interval into multiple dimensions/directions. The distribuition in this case is still Gaussian
+
+## 1.3 Risk factors of S&P 500 stocks
+
+Create 2 risk factors from PCA components considered earlier in "PortfolioSP500Stocks.csv".
+```{r}
+# read in data
+dataPath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/CourseProject"
+portfolioSP500<-read.csv(file=paste(dataPath,"PortfolioSP500Stocks.csv",sep="/"),header=T)
+# convert date column
+portfolioSP500$Date <- as.Date(portfolioSP500$Date, origin="1899-12-30")
+# check head of data
+head(portfolioSP500[,1:6])
+# Take the log difference of the stock prices
+portfolioSP500.returns<-apply(log(portfolioSP500[,-(1:3)]),2,diff)
+```
+Run PCA, create factors and factor loadings.
+
+```{r}
+# run PCA
+portfolioSP500.returns.PCA<-prcomp(portfolioSP500.returns)
+# Select the loadings of the first 2 componenets
+factorLoadings<-portfolioSP500.returns.PCA$rotation[,1:2]
+# calculate the factor scores
+factorScores<-portfolioSP500.returns%*%factorLoadings
+factorScores<-portfolioSP500.returns.PCA$x[,1:2]
+# extract the centered loadings
+zeroLoading<-portfolioSP500.returns.PCA$center
+# Calculate the approximations of the data
+approximations<-factorScores%*%t(factorLoadings)+zeroLoading
+```
+Analyze how loadings are formed
+```{r}
+# plot the centered loadings
+plot(zeroLoading)
+# plot the loadings of the first 2 components
+matplot(1:length(portfolioSP500.returns[1,]),factorLoadings,type="l")
+abline(h=0)
+```
+Factor one, is all negative, gives us representation of SP500, the broad market. If SP500 is up, then stocks in the portfolio are up. 
+Factor 2 is positive for some, neg for others. Maybe certain industries on one side, vs the other. This could be basis for long/short portfolio
+```{r}
+# order the loadings by the 2nd component
+Idx<-order(factorLoadings[,2])
+factorLoadings[Idx,2]
+```
+Interpret modes of price returns explained by factor 1 and factor 2.
+
+Create approximations of stock returns for the first day of 2014 and plot them
+```{r}
+# calculate the approximations for day 1
+approximations1<-factorScores[1,]%*%t(factorLoadings)+zeroLoading
+# plot the actual stock returns on day 1 and the approximations
+plot(1:length(portfolioSP500.returns[1,]),portfolioSP500.returns[1,])
+points(1:length(portfolioSP500.returns[1,]),approximations1,col="red")
+```
+Note the amount of residual noise after PCA approximation with 2 factors.
+
+Plot concentration ellipses for the first two factors.
+```{r}
+dtel<-dataEllipse(factorScores,levels=c(.99,.86466),xlim=c(-.5,.5),ylim=c(-.3,.5))
+```
+Or draw the ellipses manually
+```{r}
+plot(factorScores,xlim=c(-.5,.5),ylim=c(-.3,.5))
+lines(dtel$`0.99`,col="red")
+lines(dtel$`0.86466`,col="blue")
+```
+Concentration ellipse of PCA factors 1 and 2 and risk factors, looks like fat tail distribution, being approximated by gaussian.
+Positioned at the main axes. 
+
+*How do we measure the risk?*
+
+Find discrete scenarios, and look at risk
+Create 4 scenarios corresponding to extreme points on the 99% concentration ellipse.
+```{r}
+W<-dtel$`0.99`[which.min(dtel$`0.99`[,1]),]
+E<-dtel$`0.99`[which.max(dtel$`0.99`[,1]),]
+S<-dtel$`0.99`[which.min(dtel$`0.99`[,2]),]
+N<-dtel$`0.99`[which.max(dtel$`0.99`[,2]),]
+scenarios<-rbind(W,E,N,S)
+```
+Plot the 99% concentration ellipse with the scenarios
+```{r}
+plot(factorScores,xlim=c(-.5,.5),ylim=c(-.3,.5))
+lines(dtel$`0.99`,col="red")
+points(scenarios,pch=16,col="blue")
+```
+look at points on the elipse, and find worst case.
+Calculate and plot returns for the 4 scenarios.
+```{r}
+# calculate 4 sets of approximations
+approximationsW<-scenarios["W",]%*%t(factorLoadings)+zeroLoading
+approximationsE<-scenarios["E",]%*%t(factorLoadings)+zeroLoading
+approximationsN<-scenarios["N",]%*%t(factorLoadings)+zeroLoading
+approximationsS<-scenarios["S",]%*%t(factorLoadings)+zeroLoading
+# plot the approximations in 4 different colors
+plot(1:length(approximationsW),approximationsW,col="orange",pch=16,ylim=c(-.05,.05))
+points(1:length(approximationsW),approximationsE,col="magenta",pch=16)
+points(1:length(approximationsW),approximationsN,col="blue",pch=16)
+points(1:length(approximationsW),approximationsS,col="green",pch=16)
+abline(h=0)
+```
+```{r}
+c(W=sum(approximationsW),E=sum(approximationsE),N=sum(approximationsN),S=sum(approximationsS))
+```
+
+Worst case scenario is East bc that is the direction of first factor exposure. 
+
+If PCA factors are not selected as main risk factors then there should be another set of risk factors or risk measurement can be conducted based on the betas and correlation structure of the stocks.
+
+## 1.4 Project
+
+Look again at the course project data from Statistical Analysis.
+Take increments of rates.
+```{r}
+# read in the data
+dataPath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week10_Risk"
+AssignmentData<-
+  read.csv(file=paste(dataPath,"regressionassignmentdata2014.csv",sep="/"),
+           row.names=1,header=TRUE,sep=",")
+head(AssignmentData)
+```
+
+Take the difference of the rates
+```{r}
+AssignmentData<-data.matrix(AssignmentData[,1:7],rownames.force="automatic")
+AssignmentData<-diff(AssignmentData)
+dim(AssignmentData) # 8299 x 7
+# return the head of the yield differences
+head(AssignmentData)
+```
+*Estimate factors and loadings of the rate differences*
+
+```{r}
+yields.PCA <- prcomp(AssignmentData)
+# Extract Factor Loadings
+factorLoadings <- yields.PCA$rotation[,1:2]
+factorScores <- AssignmentData%*%factorLoadings
+factorScores<-yields.PCA$x[,1:2]
+zeroLoading <- yields.PCA$center
+approximations <- factorScores%*%t(factorLoadings) +zeroLoading
+head(yields.PCA$rotation)
+```
+
+```{r}
+plot(zeroLoading)
+matplot(1:length(AssignmentData[1,]),factorLoadings,type="l")
+abline(h=0)
+```
+
+```{r}
+Idx<-order(factorLoadings[,2])
+factorLoadings[Idx,2]
+```
+
+Create approximation of returns
+
+Plot concentrarion ellipsse for the first 2 factors
+
+```{r}
+library(car)
+dtel<-dataEllipse(factorScores,levels=c(.99,.86466),xlim=c(-2.5,2),ylim=c(-1,1))
+```
+
+
+*Create scenarios "W", "E", "N" and "S" for the first 2 factors*
+```{r}
+W<-dtel$`0.99`[which.min(dtel$`0.99`[,1]),]
+E<-dtel$`0.99`[which.max(dtel$`0.99`[,1]),]
+S<-dtel$`0.99`[which.min(dtel$`0.99`[,2]),]
+N<-dtel$`0.99`[which.max(dtel$`0.99`[,2]),]
+scenarios<-rbind(W,E,N,S)
+```
+Plot  ellipse with 4 scenarios highlighted
+```{r}
+plot(factorScores,xlim=c(-2.5,2),ylim=c(-1,1))
+lines(dtel$`0.99`,col="red")
+points(scenarios,pch=16,col="orange")
+```
+
+*Find term curve change scenarios*
+
+```{r}
+# Calculate approxiamtions for the 4 scenarios
+approximationsW<-scenarios["W",]%*%t(factorLoadings)+zeroLoading
+approximationsE<-scenarios["E",]%*%t(factorLoadings)+zeroLoading
+approximationsN<-scenarios["N",]%*%t(factorLoadings)+zeroLoading
+approximationsS<-scenarios["S",]%*%t(factorLoadings)+zeroLoading
+```
+
+```{r}
+#Plot the curve scenarios
+maturities <- seq(from=0, to=30, by=5)
+plot(maturities,approximationsW,col="orange",type="l",lty=1,ylim=c(-.35,.55))
+points(maturities,approximationsE,col="magenta",type="l",lty=1)
+points(maturities,approximationsN,col="blue",type="l",lty=1)
+points(maturities,approximationsS,col="green",type="l",lty=1)
+abline(h=0)
+legend("topright",legend=c("W","E","N","S"),lty=1,col=c("orange","magenta","blue","green"))
+```
+
+# 2. Exploration of Correlations
+
+Risk measurement depends significantly on the pattern of correlations and especially on nonlinear dependencies.
+
+The following plot visualizes the correlation matrix of the first 20 stocks of the portfolio.
+
+```{r}
+suppressWarnings(library(ellipse))
+# plot the correlations of the first 20 stocks
+plotcorr(cor(portfolioSP500.returns[,1:20]))
+# add color to visualization
+corr.matrix <- cor(portfolioSP500.returns[,1:20])
+signif(corr.matrix,digits=2)
+```
+```{r}
+ord <- order(corr.matrix[1,])
+xc <- corr.matrix[ord,ord]
+colors <- c("#A50F15","#DE2D26","#FB6A4A","#FCAE91","#FEE5D9","white",
+"#EFF3FF","#BDD7E7","#6BAED6","#3182BD","#08519C")
+plotcorr(xc, col=colors[5*xc + 6])
+```
+```{r}
+contour(xc)
+```
+Most of the correlations are positive due to exposure of all of them to the S&P 500 index.
+
+After removing influence of the first factor (hedging with respect to the first factor) the sign of predominant correlations changes.
+
+```{r}
+corr.matrix.pear <- cor((portfolioSP500.returns-approximations)[,1:20])
+ord <- order(corr.matrix.pear[1,])
+xc <- corr.matrix.pear[ord, ord]
+colors <- c("#A50F15","#DE2D26","#FB6A4A","#FCAE91","#FEE5D9","white",
+"#EFF3FF","#BDD7E7","#6BAED6","#3182BD","#08519C")
+plotcorr(xc, col=colors[5*xc + 6])
+```
+By default function cor() calculates Pearson correlation coefficients.
+Pearson correlation is the usual correlation coefficient, it reflects amount of linear dependence.
+Change the method to method="spearman" to estimate Spearman correlation coefficients.
+```{r}
+corr.matrix.spear <- cor((portfolioSP500.returns-approximations)[,1:20],method="spearman")
+ord <- order(corr.matrix.spear[1,])
+xc <- corr.matrix.spear[ord, ord]
+colors <- c("#A50F15","#DE2D26","#FB6A4A","#FCAE91","#FEE5D9","white",
+"#EFF3FF","#BDD7E7","#6BAED6","#3182BD","#08519C")
+plotcorr(xc, col=colors[5*xc + 6])
+```
+Spearman correlation coefficient is correlation between ranks of the variables, rather than variables themselves.
+It reflects the amount of co-monotonic relationship.
+
+Check the difference between the two correlation coefficients.
+```{r}
+corr.diff<-corr.matrix.pear-corr.matrix.spear
+ord <- order(corr.diff[1,])
+xc <- corr.diff[ord, ord]
+colors <- c("#A50F15","#DE2D26","#FB6A4A","#FCAE91","#FEE5D9","white",
+"#EFF3FF","#BDD7E7","#6BAED6","#3182BD","#08519C")
+plotcorr(xc, col=colors[5*xc + 6])
+
+signif(corr.diff,digits=1)
+```
+Try Kendall correlation coefficient, a measure showing number of co monotonic pairs over number of counter-monotonic pairs in the data.
+```{r}
+corr.matrix.ken <- cor((portfolioSP500.returns-approximations)[,1:20],method="kendall")
+ord <- order(corr.matrix.ken[1,])
+xc <- corr.matrix.spear[ord, ord]
+colors <- c("#A50F15","#DE2D26","#FB6A4A","#FCAE91","#FEE5D9","white",
+"#EFF3FF","#BDD7E7","#6BAED6","#3182BD","#08519C")
+plotcorr(xc, col=colors[5*xc + 6])
+```
+Check difference from Pearson coefficients.
+```{r}
+corr.diff<-corr.matrix.pear-corr.matrix.ken
+ord <- order(corr.diff[1,])
+xc <- corr.diff[ord, ord]
+colors <- c("#A50F15","#DE2D26","#FB6A4A","#FCAE91","#FEE5D9","white",
+"#EFF3FF","#BDD7E7","#6BAED6","#3182BD","#08519C")
+plotcorr(xc, col=colors[5*xc + 6])
+```
+signif(corr.diff,digits=1)
+```{r}
+signif(corr.diff,digits=1)
+```
+
+Both Spearman and Kendall correlation matrices show slightly higher correlation values over linear correlation of Pearson.
+
+```{r}
+pairs(apply((portfolioSP500.returns-approximations)[,1:10],2,rank))
+```
+Copulas of pairs confirm that there is no significant dependency between stock returns after removing their common risk factor.
+
+Remember that dependencies may still exist for levels of prices through cointegration.
+
+kendall estimates higher than pearson
+kendall correlation is diff of proportion of condordent pairs and discordant pairs
+
+Both Spearman and Kendall correlation matrices show slightly higher correlation values over linear correlation of Pearson.
+
+# 3. RiskMetrics
+
+## 3.1 Example 7.2
+
+Read the the IBM stock returns data and plot them.
+```{r}
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/Week10_Risk"
+da=read.table(paste(datapath,"d-ibm-0110.txt",sep="/"),header=T)
+head(da)
+```
+```{r}
+# takethe log of the returns
+ibm=log(da[,2]+1)*100
+# Plot the returns, doesnt look stationary
+plot(ibm,type="l",xaxt="n")
+axis(1,at= 1:length(da$date),
+     labels=as.Date(paste(substr(da$date,1,4),substr(da$date,5,6),substr(da$date,7,8),sep="-")))
+```
+The example applies the RiskMetrics approach to calculate VaR and ES for a long position of 1,000,000 shares.
+The loss variable is the negative daily log return.
+Calculations are in script RMfit.
+Define the loss process xt=rt if position is short and xt=-rt if position is long.
+RiskMetrics assumes that xt|Ft-1~N(0,sigma^2t, where sigma^2t is the conditional variance evolving according to
+  sigma^2t=alpha x sigma^2t-1+(1-alpha)x^2t-1, 1>alpha>0.
+
+Together with equations
+  pt-pt-1=at, at=sigmat x epsilont
+  a^2t=x^2t
+
+it becomes an IGARCH(1,1) model.
+Parameter alpha is usually from the interval [0.9,1].
+
+First, fit the IGARCH(1,1) model.
+```{r}
+source(paste(datapath,"Scripts/RMfit.R",sep="/"))
+mm=RMfit(ibm)
+```
+```{r}
+-ibm[2515]
+```
+
+The script estimates ??=0.942857 with standard error 0.007172.
+From the data we find the last value x2515=???r2515=???0.06138116 (position is long).
+Additional output shows ??2515=0.734445 estimated recursively from the model.
+Substituting these numbers into the model find
+??22516=????22515+(1?????)x^2_2515
+
+=0.942857×0.7344452+(1???0.942857)×(???0.06138116)2=0.5088013,
+
+meaning that volatility ??2516=0.5088013=0.7133, which we see in the output as predicted volatility.
+
+Knowing ??2516=0.7133 we can calculate VaR.
+In order to do this RiskMetrics uses the result xt[k]|Ft???N(0,k??^2_t+1)).
+If the tail probability is given as p=0.05 then VaR for next trading day is VaR=Position×1.65×??_t+1 or for next k days
+VaR(k)=Position × 1.65 × sqrt(k) X ??_t+1
+-
+or VaR(k)=sqrt(k) × VaR
+Since normal distribution assumed by RiskMetrics is symmetric, VaR is the same for long and short positions.
+
+Under Gaussian assumption for the loss process xt???N(??t,??^2_t) expected shortfall is
+ES_1???p=??t+??_(z1???p)/p x ??_t,
+
+where z_1???p is the (1???p)-th quantile of standard normal distribution.
+For RiskMetrics in this example z0.95=qnorm(0.95)=1.644854, ??(z0.95)=dnorm(qnorm(0.95))=0.103135 and
+ES0.95=0.1030.05??t+1=2.062713×0.7133=1.471333.
+
+
+Find this estimate in the output of RMfit.
+
+## 3.2 Example 7.5
+
+Use the same data with IBM daily log-returns to obtain risk measures with econometric approach.
+Position: long $1,000,000.
+The loss variable is xt=???rt.
+The origin is the last day of the sample T=2515
+
+Read the data and create the loss variable.
+```{r}
+da=read.table(paste(datapath,"d-ibm-0110.txt",sep="/"),header=T)
+xt=-log(da$return+1) # calculate negative log returns.
+```
+Model 1: GARCH(1,1) with Gaussian innovations.
+```{r}
+suppressWarnings(library(fGarch))
+m1=garchFit(~garch(1,1),data=xt,trace=F)
+m1
+summary(m1)
+predict(m1,3)
+```
+The fitted model is
+
+xt=??+at,  at=??t??t, ??t???N(0,1)
+??2t=??+??1a2t???1+??1??2t???1
+
+
+Shapiro-Wilk test shows violation of Gaussian assumption.
+The rest of characteristics show that the model fit is adequate.
+
+The 1-step prediction for mean and volatility of xtxt at T=2515 are given by predict(m1,3): -0.000601 and 0.0078243, correspondingly.
+
+VaR and ES are calculated by script RMeasure.R.
+```{r}
+source(paste(datapath,"Scripts/RMeasure.R",sep="/"))
+m11=RMeasure(-.000601,.0078243)
+```
+To calculate VaR of the actual position multiply by the size:
+```{r}
+cbind(m11$results[,1],m11$results[,-1]*1000000)
+```
+These amounts show capital at risk.
+
+Model 2: GARCH(1,1) with standardized Student-t innovations.
+
+```{r}
+m2=garchFit(~garch(1,1),data=xt,trace=F,cond.dist="std")
+m2
+summary(m2)
+```
+The difference between model m1 and model m2 is ?????t???5.75.
+The quality of fit is again adequate, except for the Gaussian assumption.
+The intercept ?? is barely significant.
+
+The shape parameter of the Student-t distribution shows heavy tails in black:
+
+```{r}
+xData<-seq(from=-8,to=8,by=.1)
+Shape=5.751
+plot(xData,dt(xData,df=Shape),type="l",lwd=3,ylab="Distribution Density")
+lines(xData,dnorm(xData,0,Shape/(Shape-2)),lwd=3,col="red")
+```
+Calculate 1-step predictions of mean and volatility of loss.
+```{r}
+predict(m2,3)
+# 3 levels of risk measures
+m22=RMeasure(-.0004113,.0081009,cond.dist="std",df=5.751)
+# risk estimate in dollars
+cbind(m22$results[,1],m22$results[,-1]*1000000)
+```
+Not surprisingly, the second model gives more conservative estimates of both risk measures because it captures fat tails.
+
+To calculate VaR for horizon consisting of multiple periods use the estimated Gaussian GARCH(1,1) m1.
+Let the horizon be 15 steps with origin at T=2515.
+
+Predict the loss variable and volatility for 15 steps.
+Adding loss variable predictions for 15 days obtain the prediction for the time horizon.
+```{r}
+### multi-step
+M1=predict(m1,15) # Model m1 is defined in the output of Example 7.5.
+names(M1)
+
+mf=M1$meanForecast
+merr=M1$meanError
+pmean=sum(mf)
+pvar=sum(merr^2)
+pstd=sqrt(pvar)
+pmean
+pvar
+pstd
+```
+Use the script RMeasure.R to find VaR and ES for 15 steps time horizon.
+```{r}
+M11=RMeasure(pmean,pstd)
+```
+Calculate multiperiod VaR and ES using GARCH(1,1) with standardized Student-t distribution for innovations.
+This time the sum of kk standardized Student-t distributed random variables is not going to be also distributed as the same standardized Student.
+We need to compute multiperiod VaR and ES by simulating GARCH model.
+This is done by another script SimGarcht.R.
+```{r}
+source(paste(datapath,"Scripts/SimGarcht.R",sep="/"))
+```
+Use GARCH(1,1) model with Student-t innovations m2 estimated earlier.
+Parameters of the model:
+```{r}
+vol=volatility(m2)
+a1=c(1.922*10^(-6),0.06448); b1=0.9286; mu=-4.113*10^(-4)
+```
+The origin: the last loss variable and volatility.
+```{r}
+ini=c(xt[2515],vol[2515])
+```
+The simulation process starts with:
+??22516=??0+??1(x2515?????)2+??22515,
+
+=1.922×10???6+0.064488(???0.0006138116+4.113×10???4)2+??22515,
+
+a2516=??2516??2516,??2516???t???5.751,
+
+x2516=??+a2516=???4.113×10???4+a2516,
+
+where ??2516 is a draw from t???5.751.
+Then simulate x2517,.,x2530 recursively by changing the time index 1 step forward each time.
+The sum of these losses gives one forecast with horizon 15.
+Repeat this simulation procedure 30,000 times.
+All that is done by SimGarcht.
+As a result we obtain a sample of 30,000 15-step loss predictions from which we find the empirical distribution of loss for VaR and ES calculation.
+```{r}
+set.seed(8473625)
+mm=SimGarcht(h=15,mu=mu,alpha=a1,b1=b1,df=5.751,ini=ini,nter=30000)
+rr=mm$rtn
+mean(rr)
+quantile(rr,c(0.95,0.99))  # Obtain VaR
+```
+Function quantile() finds sample quantile. For the million dollars long position 15-day capital at risk is: VaR0.95(15)=$47,897, VaR0.99(15)=$75,829
+
+```{r}
+idx=c(1:30000)[rr > 0.04789796] # Compute ES for p = 0.05
+mean(rr[idx])
+
+idx=c(1:30000)[rr > 0.07582923] # Compute ES for p = 0.01
+mean(rr[idx])
+```
+For the million dollar long position 15-day capital at risk is: ES0.95(15)=$65,677, ES0.99(15)=$95,135
+
+# 4. Quantile estimation
+
+It is possible to calculate VaR and ES without any models directly from empirical distribution.
+The only assumption made is that the observed empirical distribution is going to hold for time horizon in the future.
+
+If xt,t=1,.,n is the observed process of loss create the ordered sequence x(1),.,x(n) which is called order statistics.
+In particular, x(1)=min(xt),x(n)=max(xt).
+To estimate q-th quantile one needs to select x(l)=x(nq).
+If nq is not an integer number interpolate between the nearest observations x(l1) and x(l2) for integers l1,l2 such that l1<nq<l2.
+If q1=l1/n,q2=l2/n, then the quantile estimate xhat_q is
+xhat_q=q(2???q)/(q2???q1) xl1 + (q???q1)/(q2???q1) xl2.
+
+The function calculating empirical quantile is quantile().
+Once quantile is estimated VaR is set equal to it according to the definition.
+ES is calculated by averaging all of the observed points that are greater or equal than xhat_q:
+ES^q=(???ni=iq+1x(i))/(n???iq),
+
+where iq is the largest integer satisfying iq<nq.
+
+## 4.1 Example 7.6
+
+For long position in IBM stock the loss is negative stock returns.
+For the 0.95 quantile 2515×0.95=2389.25 and l1=2389<2389.25<2390=l2.
+Also
+q1=l1/n=2389/2515=0.9499006,   q2=l2/n=2390/2515=0.9502982
+
+and
+x^q=(q2???q)/(q2???q1)xl1+(q???q1)/(q2???q1)xl2
+
+=0(.9502982???0.95/0.9502982???0.9499006 x_2389) + (0.95???0.9499006/0.9502982???0.9499006 x_2390)
+
+=0.75x_2389+0.25x_2390=0.75×0.02652366+0.25×0.0265709=0.02654=VaR.
+
+```{r}
+da=read.table(paste(datapath,"d-ibm-0110.txt",sep="/"),header=T)
+ibm=-log(da[,2]+1)
+prob1=c(0.9,0.95,0.99,0.999) # probabilities of interest
+quantile(ibm,prob1)
+sibm=sort(ibm) # Sorting into increasing order
+0.95*2515
+es=sum(sibm[2390:2515])/(2515-2389)
+es
+```
+Discussion
+1. Empirical quantile is simple to calculate and has minimum assumptions
+2. Empirical quantile will never show value at risk larger than the maximum observed loss
+3. Since quantile levels are high most of the sample remains not used
+
+## 4.2 Quantile regression
+
+Loss may be dependent on some predictors
+xt=??0+??1zt
+
+
+Such regression model can be used to calculate risk measures.
+Quantile estimation in such case is:
+x^q=min?????i=1nwq(xi?????),
+
+where wq(z)=qzif z???0 and wq(z)=(q???1)z if z<0
+
+##4.3 Example 7.7
+
+In IBM example stock returns depend on volatility of the market.
+Consider linear model for xtxt with lag-1 IBM volatility and lag-1 VIX as predictors.
+Q(q|xt)=???t=22515wq(xt?????0?????1st???1?????2vt???1),
+
+where st???1 is the lag-1 daily IBM stock volatility obtained by GARCH(1,1) model and vt???1 is the lag-1 VIX index.
+Apply this regression to xt with q=0.95.
+
+Read and prepare the data
+
+```{r}
+dd=read.table(paste(datapath,"d-ibm-rq.txt",sep="/"),header=T) # Load data
+head(dd)
+dim(dd)
+dd[,3]=dd[,3]/100
+head(dd)
+```
+Quantile regression fit is done by rq() from quantreg.
+```{r}
+suppressWarnings(library(quantreg))
+```
+Apply quantile regression with q=0.95q=0.95.
+```{r}
+mm=rq(nibm~vol+vix,tau=0.95,data=dd) # Quantile regression
+summary(mm)
+names(mm)
+```
+Intercept is not significant.
+VIX is also not significant at 5% level.
+
+Plot the output variable dd$nibm and the fitted values.
+```{r}
+fit=mm$fitted.values
+tdx=c(2:2515)/252+2001
+plot(tdx,dd$nibm,type='l',xlab='year',ylab='neg-log-rtn')
+lines(tdx,fit,col='red')
+```
+Note that VaR estimated by quantile regression is time-dependent.
+
+Estimate quantile regression for q=0.99
+
+```{r}
+mm=rq(nibm~vol+vix,tau=0.99,data=dd) # 99th quantile
+summary(mm)
+```
+All parameters are insignificant: we are using only 1% of the sample to estimate them.
+
+# 5. Extreme Value Theory
+
+For an independent sample of loss x1,.,xn let order statistics be x(1),.,x(n). The largest of them is the maximum: max(xt)=x(n).
+The statistical theory that studies the distribution of x(n) as n?????? is called Extreme Value Theory.
+
+Main result of EVT: For normalized maximum x???(n)=(x(n)?????n)/??n, where ??n=E[x(n)],??2n=V[x(n)], the limiting distribution is the generalized extreme value distribution with cumulative distribution function F???(x)=exp(???(1+??x)???1??) if ?????0 and F???(x)=exp(???exp(x)))) if ????=0.
+
+Extreme value distribution is a parametric distribution that measures the tail behavior.
+Extreme value distribution can produce loss above the observed maximum of the sample.
+The parameter ??=1?? is called the tail index.
+The extreme value distribution combines three different distributions:
+1. The Gumbel family, when ??=0
+2. The Frechet family, when ??>0
+3. The Weibull family, when ??<0
+
+Read and prepare IBM data.
+```{r}
+da=read.table(paste(datapath,"d-ibm-0110.txt",sep="/"),header=T) # Load data
+ibm=log(da$return+1)*100
+xt=-ibm
+```
+
+## 5.1 Hill estimator, 
+
+Hill estimator of the shape parameter is implemented in Hill.R.
+Hill estimator is only applicable to Frechet distribution.
+Hill estimator method is based on the upper part of the ordered statistics and estimates the parameters of the extreme value distribution from them using conditional maximum likelihood approach.
+looks at block of data, and look at max, then hist of blocks
+trying to find distribution of maximums.
+this method wastes alot of data. It is less commonly used
+
+```{r}
+source(paste(datapath,"Scripts/Hill.R",sep="/"))  # compile R script
+Hill
+```
+```{r}
+Hill(ibm,110)
+Hill(xt,110)
+```
+The second argument of Hill() is q???T/4, i.e. the number of the observations in the tail.
+```{r}
+suppressWarnings(library(evir)) # Load package
+```
+Plot Hill estimator for daily stock returns of IBM stock.
+```{r}
+par(mfrow=c(2,1))
+hill(ibm,option=c("xi"),end=200)
+hill(xt,option=c("xi"),end=200)
+```
+The top plot is for positive returns.
+The lower x-axis shows q and the y-axis shows the estimated shape parameter ??.
+For a wide range of q the Hill estimate is stable between 0.3 and 0.4. The bottom plot shows results for negative returns.
+For negative returns the shape parameter is estimated approximately as 0.3 for q in wide range from 40 to 126, but ?? drops significantly for smaller q.
+Estimated shape parameters differ significantly from zero, indicating that the distribution belongs to Frechet family and is different from normal.
+
+## 5.2 Peaks over Threshold 
+
+Commonly used. making a level, st enough observaitions above. Selection fo this level is the key. Then observe
+
+if threshold is high, fewer data, but more precise. 
+
+Traditional EVT focuses on fitting the parametric tail distribution to multiple blocks of data.
+An alternative approach looks at crossings of some high enough threshold: focusing on the frequency of exceedances and their size.
+The name of the method is Peaks over Threshold (POT).
+
+POT does not require the choice of block size, but it requires the choice of the threshold level.
+Rule of thumb is to choose a threshold that gets exceeded at least by 5% of the sample.
+
+Let xt be loss variable and ?? be the threshold.
+Let ti be the time of i-th exceedance which is denoted as y=xt?????.
+POT focuses on the conditional distribution of y, given that xt?????.
+Such distribution happens to be Generalized Pareto Distribution.
+
+```{r}
+### POT
+da=read.table(paste(datapath,"d-ibm-0110.txt",sep="/"),header=T) # Load data
+ibm=log(da[,2]+1)
+xt=-ibm
+```
+Use function pot() to perform POT analysis.
+
+Given a high threshold ??0 assume that excess return y=x?????0 follows GPD with parameters ?? and ??(??0), where 0<??<1.
+Then the mean excess of x over ??0 is E(x?????0|x>??0)=??(??0)/(1?????).
+Define the mean excess function as
+e(??)=E(x?????0|x>??0)=??(??0)/(1?????).
+
+Empirical mean excess function is
+eT(??)=(1/N??)???i=1N??(x_ti?????).
+
+Here N?? is the number of returns that exceeded ?? and xti are the values of the corresponding returns.
+
+The scatter-plot of eT(??) against ?? is called the mean excess plot. It should be linear in ?? for ??>??0 under the GPD.
+The plot is also called mean residual life plot.
+```{r}
+da=read.table(paste(datapath,"d-ibm-0110.txt",sep="/"),header=T) # Load data
+ibm=log(da[,2]+1)
+library(evir)
+xt=-ibm
+qplot(xt,threshold=0.01,pch='*',cex=0.8,main="Loss variable of daily IBM log returns")
+```
+
+```{r}
+meplot(ibm)
+abline(v=.006,col="red")
+title(main="Daily IBM log returns")
+```
+This plot shows that a threshold of about 1% is a reasonable choice
+
+Estimate model using 3 different thresholds.
+```{r}
+m1=pot(xt,threshold=0.01)
+m2=pot(xt,threshold=0.012)
+m3=pot(xt,threshold=0.008)
+```
+For each of the estimated models find VaR and Expected Shortfall using riskmeasures() for levels 95% and 99%.
+```{r}
+riskmeasures(m1,c(0.95,0.99)) # Threshold=0.012
+riskmeasures(m2,c(0.95,0.99)) # Threshold=0.012
+riskmeasures(m3,c(0.95,0.99)) # Threshold=0.008
+```
+
+Alternatively, use estimation of generalized Pareto distribution by gpd().
+
+First, estimate threshold with quant(). Use quantile level 99.9%.
+```{r}
+(quant(xt,.999))
+```
+Select threshold using the graph or the table. Leave enough exceedances for estimation, select threshold from a range where quantile estimate is not changing much.
+```{r}
+(gpd1<-gpd(xt,threshold=.025))
+```
+Obtain risk measures.
+```{r}
+riskmeasures(gpd1,c(.95,.99,.999,.9999))
+summary(xt)
+```
+Note that estimated quantile for level 99.99% is greater than maximum of the sample.
