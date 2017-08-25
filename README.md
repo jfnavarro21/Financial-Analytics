@@ -1,2 +1,2 @@
 # Financial-Analytics
-Main topics are Portfolio Modeling, Time Series, Options pricing, High frequency trading, Value at Risk
+Main topics are Portfolio Modeling, Time Series, Options pricing, High frequency trading, and Risk management models
