@@ -1,2 +1,2 @@
 # Financial-Analytics
-This is material covered in UChicago MSCA 32001 Financial Analytics
+Main topics are Portfolio Modeling, Time Series, Options pricing, High frequency trading, Value at Risk
