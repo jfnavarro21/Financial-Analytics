@@ -1,0 +1,661 @@
+---
+title: "Course Project Parts 2 & 3"
+author: "John Navarro"
+date: "August 14, 2017"
+output: pdf_document
+---
+
+# 1. Loading Portfolio
+
+Read portfolio consisting of 297 S&P500 stocks prices for 2014.
+The data are in the file PortfolioSP500Stocks.csv
+In addition to stock prices the file also contians prices of S&P 500 SPDR ETF SPY and Fed Funds rates for the same period.
+
+```{r}
+# Read data into dataframe
+datapath <- "C:/Users/JohntheGreat/Documents/MSCA/FinancialAnalytics/CourseProject"
+Data2014<-read.csv(paste(datapath,'PortfolioSP500Stocks.csv',sep='/'),header=TRUE)
+
+# Check dim of data #250 x 300
+dim(Data2014)
+
+# check head of data
+head(Data2014[,1])
+
+# print 300 column names
+colnames(Data2014)
+```
+
+Tranfrorm dates in the first column into date format
+```{r}
+#Change the column date into a date object
+Data2014[,1]<-as.Date(Data2014[,1],origin = "1899-12-30")
+
+# Print the first three columns of Dataframe
+head(Data2014[,1:3])
+
+# Calculate mean Fed Funds rate for 2014
+Mean.FedFunds <- mean(Data2014[,3])/100/250
+```
+
+# 2. APT
+
+Create log returns
+```{r}
+# Take the log of the stock data, then take the difference
+Data2014.Returns <- apply(log(Data2014[,-(1:3)]),2,diff)
+```
+
+## 2.1.a Selection of factors
+
+Select factors by doing PCA on the stock returns.
+
+```{r}
+#Run PCA on the log returns
+Data2014.Returns.PCA <- prcomp(Data2014.Returns)
+
+# print the attributes of the model
+names(Data2014.Returns.PCA)
+
+# Print the first 10 components
+summary(Data2014.Returns.PCA)$importance[,1:10]
+
+# Print the dimensions of the factor scores 297 x 249
+dim(Data2014.Returns.PCA$rotation)
+```
+
+Rotation is the matrix of factor scores
+Column number i is the loading corresponding to the ith principal component
+Select a number of market factors, for example, take first factors which explain more than 90% of the variance
+
+```{r}
+# Assign number of factors
+nFactors <- 10
+
+# Assign factor loadings
+factorLoadings <- Data2014.Returns.PCA$rotation[,1:nFactors]
+
+# Assign factor scores
+factorScores <- Data2014.Returns%*%Data2014.Returns.PCA$rotation[,1:nFactors]
+
+# Assign zero Loadings
+zeroLoading<-Data2014.Returns.PCA$center
+```
+
+Create matrix of approximations of stock return "nFactorAppr" using the selected number of factors
+Calculate vector of determination coefficients for pairs Data2014.Returns[,i]~nFactorAppr[,i].
+Plot distribution of this vector.
+
+```{r}
+# approximation of stock returns
+nFactorAppr<-factorScores%*%t(factorLoadings)
+
+# Extract r.squareds from linear model of each stock explained by PCA approximation
+Data2014.Returns.r.squared<-sapply(1:297,function(z) 
+  summary(lm(Data2014.Returns[,z]~nFactorAppr[,z]))$r.squared)
+
+# Plot the distribution of coefficients
+plot(density(Data2014.Returns.r.squared),main="Distribution of Determination Coefficients",
+     xlab="r.squared")
+
+# average r squared
+abline(v=mean(Data2014.Returns.r.squared),col="green",lwd=2)
+
+# cumulative proportion of factors
+abline(v=summary(Data2014.Returns.PCA)$importance[3,nFactors],col="red",lwd=2)
+
+# Include legend
+legend("topleft",legend=c("mean r.squared","expected for nFactors"),col=c("green","red"),lty=1,lwd=2)
+```
+
+*What do you think about the quality of approximation?*
+
+Looking at the red and green lines, they are very close. There is a good correlation between the matrix of approximations and the original data
+
+*Is it consistent with the selected number of factors?*
+
+ It appears that the average r-squared from the matrix of approximations matches the cumulative proportion of explained variance(0.51803000) from choosing 10 factors. 
+
+*What characteristic in the PCA output do you use in order to answer this question?*
+
+We would look at cumulative proportion from the PCA model's output.
+
+```{r}
+# Print the head of 
+head(nFactorAppr[,1:6])
+
+#compare the determination coefficients with
+head(Data2014.Returns.r.squared)
+```
+
+Visualize approximations for several stocks
+
+```{r}
+checkVariableApproximation<-5
+plot(Data2014.Returns[,checkVariableApproximation],nFactorAppr[,checkVariableApproximation],type="l")
+```
+
+Repeat analysis of approximations with several different numbers of selected factors.
+
+Use nFactors PCA components as market factors for APT model.
+
+## 2.1.b Selection of 20 factors
+
+```{r}
+# Assign number of factors
+nFactors <- 20
+# Assign factor loadings
+factorLoadings.20 <- Data2014.Returns.PCA$rotation[,1:nFactors]
+# Assign factor scores
+factorScores.20 <- Data2014.Returns%*%Data2014.Returns.PCA$rotation[,1:nFactors]
+# Assign zero Loadings
+zeroLoading.20<-Data2014.Returns.PCA$center
+# approximation of stock returns
+nFactorAppr<-factorScores.20%*%t(factorLoadings.20)
+# Extract r.squareds from linear model of each stock explained by PCA approximation
+Data2014.Returns.r.squared<-sapply(1:297,function(z) 
+  summary(lm(Data2014.Returns[,z]~nFactorAppr[,z]))$r.squared)
+
+# Plot the distribution of coefficients
+plot(density(Data2014.Returns.r.squared),main="Distribution of Determination Coefficients",
+     xlab="r.squared")
+# average r squared
+abline(v=mean(Data2014.Returns.r.squared),col="green",lwd=2)
+# cumulative proportion of factors
+abline(v=summary(Data2014.Returns.PCA)$importance[3,nFactors],col="red",lwd=2)
+# Include legend
+legend("topleft",legend=c("mean r.squared","expected for nFactors"),col=c("green","red"),lty=1,lwd=2)
+
+# Print the head of 
+head(nFactorAppr[,1:6])
+#compare the determination coefficients with
+head(Data2014.Returns.r.squared)
+
+checkVariableApproximation<-5
+plot(Data2014.Returns[,checkVariableApproximation],nFactorAppr[,checkVariableApproximation],type="l")
+```
+
+## 2.1.c Selection of 30 factors
+
+```{r}
+# Assign number of factors
+nFactors <- 30
+# Assign factor loadings
+factorLoadings.30 <- Data2014.Returns.PCA$rotation[,1:nFactors]
+# Assign factor scores
+factorScores.30 <- Data2014.Returns%*%Data2014.Returns.PCA$rotation[,1:nFactors]
+# Assign zero Loadings
+zeroLoading.30<-Data2014.Returns.PCA$center
+# approximation of stock returns
+nFactorAppr<-factorScores.30%*%t(factorLoadings.30)
+# Extract r.squareds from linear model of each stock explained by PCA approximation
+Data2014.Returns.r.squared<-sapply(1:297,function(z) 
+  summary(lm(Data2014.Returns[,z]~nFactorAppr[,z]))$r.squared)
+
+# Plot the distribution of coefficients
+plot(density(Data2014.Returns.r.squared),main="Distribution of Determination Coefficients",
+     xlab="r.squared")
+# average r squared
+abline(v=mean(Data2014.Returns.r.squared),col="green",lwd=2)
+# cumulative proportion of factors
+abline(v=summary(Data2014.Returns.PCA)$importance[3,nFactors],col="red",lwd=2)
+# Include legend
+legend("topleft",legend=c("mean r.squared","expected for nFactors"),col=c("green","red"),lty=1,lwd=2)
+
+# Print the head of 
+head(nFactorAppr[,1:6])
+#compare the determination coefficients with
+head(Data2014.Returns.r.squared)
+
+checkVariableApproximation<-5
+plot(Data2014.Returns[,checkVariableApproximation],nFactorAppr[,checkVariableApproximation],type="l")
+```
+
+## 2.1.d Selection of 40 factors
+
+```{r}
+# Assign number of factors
+nFactors <- 40
+# Assign factor loadings
+factorLoadings.40 <- Data2014.Returns.PCA$rotation[,1:nFactors]
+# Assign factor scores
+factorScores.40 <- Data2014.Returns%*%Data2014.Returns.PCA$rotation[,1:nFactors]
+# Assign zero Loadings
+zeroLoading.40<-Data2014.Returns.PCA$center
+# approximation of stock returns
+nFactorAppr<-factorScores.40%*%t(factorLoadings.40)
+# Extract r.squareds from linear model of each stock explained by PCA approximation
+Data2014.Returns.r.squared<-sapply(1:297,function(z) 
+  summary(lm(Data2014.Returns[,z]~nFactorAppr[,z]))$r.squared)
+
+# Plot the distribution of coefficients
+plot(density(Data2014.Returns.r.squared),main="Distribution of Determination Coefficients",
+     xlab="r.squared")
+# average r squared
+abline(v=mean(Data2014.Returns.r.squared),col="green",lwd=2)
+# cumulative proportion of factors
+abline(v=summary(Data2014.Returns.PCA)$importance[3,nFactors],col="red",lwd=2)
+# Include legend
+legend("topleft",legend=c("mean r.squared","expected for nFactors"),col=c("green","red"),lty=1,lwd=2)
+
+# Print the head of 
+head(nFactorAppr[,1:6])
+#compare the determination coefficients with
+head(Data2014.Returns.r.squared)
+
+checkVariableApproximation<-5
+plot(Data2014.Returns[,checkVariableApproximation],nFactorAppr[,checkVariableApproximation],type="l")
+```
+
+Here we see that as we increase the number of factors, the cumulative proportion of variance increases. However, we see that as the number of factors increase the matrix approximation is less accurate compared to the original data
+
+
+## 2.2 Estimation of betas
+
+Use estimated factor loadings as stock betas on the selected market factors
+
+```{r}
+# use factor loadings as betas
+Data2014.Returns.betas<-factorLoadings
+
+# Print the dimension of the betas (297x10)
+dim(Data2014.Returns.betas)
+
+# View the head of the betas
+head(Data2014.Returns.betas)
+
+# Plot the Betas for first 6 stocks
+matplot(1:10,t(Data2014.Returns.betas)[,1:6],type="l",lty=1,xlab="Market Factors",
+        ylab="Betas",lwd=2,ylim=c(-.2,.3),col=c("black","red","green","blue","purple","magenta"))
+legend("topleft",legend=rownames(Data2014.Returns.betas)[1:6],lty=1,lwd=2,
+       col=c("black","red","green","blue","purple","magenta"))
+```
+
+The resulting model obtained by PCA is 
+    Ri(t) = E[Ri] + L1(i)f1(t) + L2(i)f2(t)
+          = alphai + B1(i)f1(t) + B2(i)f2(t)
+          
+          for i=1,...,6
+It is called the equilibrium equation of APT
+
+## 2.3 Estimation of market prices of risk
+
+Estimate linear model with alpha-Rf as output columnn and the matrix of B as inputs.
+Here Rf is the average risk-free Fed Funds rate for 2014.
+
+Estimate vector of market prices of risk
+```{r}
+# Create data frame of zero loadings, mean fed funds, and 10 Principal components
+secondLinearModelData<-as.data.frame(cbind(zeroLoading,Mean.FedFunds,Data2014.Returns.betas))
+
+# linear regression with alpha-RF as output and PC/betas as input
+Market.Prices.of.risk.fit<-lm(I(zeroLoading-Mean.FedFunds)~.-1,data=secondLinearModelData)
+
+# extract the coefficients of the Principal components
+Market.Prices.of.risk<-Market.Prices.of.risk.fit$coefficients
+
+# Print summary of coefficients of the Principal components
+summary(Market.Prices.of.risk.fit)$coefficients
+```
+
+Identify market prices of risk which are insignificant
+
+The resulting vector of market prices of risk:
+```{r}
+Market.Prices.of.risk
+
+# Check R squared
+summary(Market.Prices.of.risk.fit)$r.squared
+
+# Check distribution of residuals
+modelResiduals <- as.vector(summary(Market.Prices.of.risk.fit)$residuals)
+
+# Plot a histogram of the residuals
+hist(modelResiduals)
+
+# Check qq plot of the residuals
+qqnorm(modelResiduals)
+qqline(modelResiduals)
+```
+
+Use the residuals of the equilibrium model to assess the prices of each stock relative to the prediction as of beginning of 2014.
+
+```{r}
+# Plot the residuals
+plot(modelResiduals,type="h",xlab="Stock",ylab="Residual")
+abline(h=0)
+
+# list the stocks recommended for long portfolio
+rownames(secondLinearModelData)[modelResiduals>0]
+```
+
+Calculate weights "longPortfolioWeights"" of the long portfolio based on the residuals
+
+```{r}
+# Use proportion of total residuals as the weight for each stock
+longPortfolioWeights<-modelResiduals[modelResiduals>0]/sum(modelResiduals[modelResiduals>0])
+
+# Check that the weights sum to 1
+sum(longPortfolioWeights)
+```
+
+Make list of stocks recommended for short portfolio according to APT for 2014
+```{r}
+# print stock names whose residuals are less than 0
+rownames(secondLinearModelData)[modelResiduals<0]
+```
+
+Calculate weights shortPortfolioWeights of the long portfolio based on the residuals
+
+```{r}
+# Use the proportion of the total residuals as weights for each stock
+shortPortfolioWeights<-modelResiduals[modelResiduals<0]/sum(modelResiduals[modelResiduals<0])
+
+# check that the weights sum to 1
+sum(shortPortfolioWeights)
+```
+
+# 3. Market-Neutral Portfolio
+
+Create market-neutral portfolio of stocks according to the APT model as of the beginning of 2014 and track its value for the rest of the year.
+
+
+```{r}
+#Calculate the intital value of weighted long portfolio
+(longOnlyValue<-as.matrix(Data2014[1,-(1:3)])[modelResiduals>0]%*%longPortfolioWeights)
+
+# Calculate the initial value of weighted short portfolio
+(shortOnlyValue<-as.matrix(Data2014[1,-(1:3)])[modelResiduals<0]%*%shortPortfolioWeights)
+
+# Find the proportion between the long and the short portfolio.
+c(longOnlyValue=longOnlyValue,shortOnlyValue=shortOnlyValue)
+
+# Calculate the short to long proportion
+portfolioProportion<-shortOnlyValue/longOnlyValue
+unclass(portfolioProportion)
+
+# print the long only and short only proportions
+c(longOnlyShares=shortOnlyValue/longOnlyValue,shortOnlyShares=1)
+```
+
+# Calculate value trajectory of the total portfolio and plot it
+
+```{r}
+# Daily long portfolio stock prices multiplied by vector of stock weights
+longValueTrajectory<-as.matrix(Data2014[,-(1:3)])[,modelResiduals>0]%*%longPortfolioWeights
+
+# Daily stock prices of short portfolio multiplied by vector of stock weights
+shortValueTrajectory<-as.matrix(Data2014[,-(1:3)])[,modelResiduals<0]%*%shortPortfolioWeights
+
+# Combined potfolio trajectory according to proportion ratio
+totalPortfolioTrajectory<-longValueTrajectory%*%portfolioProportion-shortValueTrajectory
+
+# Plot the portfolio trajectory over time
+plot(totalPortfolioTrajectory,type="l",xlab="2014",ylab="Value of Market-Neutral Portfolio")
+
+# Print the head of total portfolio Trajectory
+head(totalPortfolioTrajectory)
+```
+
+# 4. Hedging Market-Neutral Portfolio
+
+Explore relationship between the portfolio and SPY
+
+Define cumulative returns of both trajectories and plot them
+
+```{r}
+# cumulative returns of SPY
+cumReturnsSPY<-cumsum(c(0,diff(log(Data2014[,2]))))
+
+# cumulative returns of total portfolio
+cumReturnsPortfolio<-cumsum(c(0,diff(log(1+totalPortfolioTrajectory))))
+
+# Combine Portfolio and SPY returns in matrix
+cumReturnsPortfolioSPY<-cbind(Portfolio=cumReturnsPortfolio,SPY=cumReturnsSPY)
+
+# Plot the returns of both SPY and total porfolio
+matplot(1:length(cumReturnsPortfolioSPY[,1]),cumReturnsPortfolioSPY,
+        type="l",xlab="2014",ylab="Value of Market-Neutral Portfolio")
+```
+
+Both trajectories start at origin, but the portfolio is scaled differently
+The X-Y plot is more informative
+```{r}
+# Plot one return vs the other
+plot(cumReturnsPortfolioSPY[,2], cumReturnsPortfolioSPY[,1], type="l")
+
+# Plot as a scatterplot
+plot(cumReturnsPortfolioSPY[,2], cumReturnsPortfolioSPY[,1])
+```
+
+* What do you think about the qualities of the market-neutral portfolio?*
+
+It would seem like the market neutral portfolio would be somewhat hedged against broad market direction. While capturing the tendency of over/under valued stocks to return to the mean. 
+
+* How strong is correlation and how good you expect regression fit to this data be?*
+
+From the scatterplot of the portfolio vs SPY, we can see a very strong correlation. I would expect regression fit to be strong
+
+```{r}
+# Fit a regression between SPY and the Portfolio
+port.fit <- lm(cumReturnsPortfolioSPY[,2]~ cumReturnsPortfolioSPY[,1])
+# return the r squared of the fitted model
+summary(port.fit)$r.squared
+```
+
+# 4.1 Hedging using regression
+
+```{r}
+# Fit a linear model with Portfolio returns being explained by SPY returns
+hedgeRatioModel<-lm(cumReturnsPortfolioSPY[,1]~cumReturnsPortfolioSPY[,2]-1)
+
+# Print summary of linear regression
+summary(hedgeRatioModel)
+```
+
+Check the residuals of the linear model fit
+
+```{r}
+# Plot the residuals
+plot(hedgeRatioModel$residuals)
+
+# Histogram of residuals
+hist(hedgeRatioModel$residuals)
+
+# qqplot of residuals
+qqnorm(hedgeRatioModel$residuals)
+qqline(hedgeRatioModel$residuals)
+```
+
+*What can you tell about the assumptions of the the model?*
+
+We can see that this model fit does not conform to the gaussian assumptions of the linear model. From the residuals plot over time, we can see that the residuals still contain auto correlation. The histogram shows us that the residuals are not normally distributed, it appears to have some skewness as the negative tail looks heavy, while the positive tail looks thin. Similarly, the QQ plot confirms that the residuals are not normally distributed.  
+
+Conclusion: Linear model gives the hedge ratio of 32.1375379, i.e. for 1 unit of the portfolio the hedge contains approximately -32 units of SPY.
+
+# 4.2 Hedging using cointegration
+
+Select a more recent and shorter period of last 900 observations of the data
+
+Fit cointegration model
+
+```{r}
+suppressWarnings(library(urca))
+suppressWarnings(library(fArma))
+```
+
+Fit cointegration model cajo
+
+```{r}
+# Use Johansen procedure for VAR
+cajo <- ca.jo(cumReturnsPortfolioSPY, ecdet = "none", type="eigen", K=2, spec="longrun")
+
+# Print the summary of the cointegration model
+summary(cajo)
+```
+
+Residuals and their ACF and PACF for 1 year and 3 year respectively
+
+```{r}
+# plot residuals and ACF and PACF plots
+plotres(cajo)
+```
+
+Check statistics and critical values of the test for cointegration order
+
+```{r}
+# Print test statistics
+cajo@teststat
+
+# Print critical values
+cajo@cval
+
+# Plot test statistic against critical values under null hypothesis that cointegration order is less than or equal to 1
+barplot(cajo@cval[1,],main = "Johansen test h<=1",col = "red")
+abline(h=cajo@teststat[1], col="blue")
+legend("topleft", c("critical values","test statistics"), lwd=2,col = c("red","blue"), bty="n")
+
+# Plot test statistic against critical values under null hypothesis that cointegration order is equal to zero
+barplot(cajo@cval[2,],main = "Johansen test h=0",col = "red")
+abline(h=cajo@teststat[2], col="blue")
+legend("topleft", c("critical values","test statistics"), lwd=2,col = c("red","blue"), bty="n")
+```
+
+*Interpret the results of the fit and explain why you make the following conclusion*
+
+For the first plot where the null hypothesis is that the cointegration order is less than or equal to one. We cannot reject the null hypothesis at any precision level because the test statistic is below all 3 critical values. 
+
+The second bar plot shows that we can reject the null hypothesis that the cointegration order is zero, with levels of 5% or more. 
+
+The conclusion is that the cointegrating order equals 1
+
+Cointegrated vector a1=(a1,1,a1,2), normalised with respect to the first variable is:
+
+```{r}
+# Cointegration vector
+(a_1<- cajo@V[,1])
+
+```
+
+By definition of cointegration with order h=1h=1 process zt,1=aT1 xt must be stationary (I(0)).
+
+```{r}
+# Calculate stationary process z_t1
+z_t1= cumReturnsPortfolioSPY %*% a_1
+
+# Plot the process
+matplot(z_t1,type ="l", main = "z(1,t)=a1'x(t)", col = "blue")
+```
+
+The mixed process looks stationary for most of the year with, maybe, exception of the first 50-60 days.
+
+Estimate autoregression model for process zt,1
+
+```{r}
+zar <-ar(z_t1,  aic = TRUE,method = "yule-walker")
+# AR(1)
+zar$order
+```
+
+The order of the AR process is chosen by ar() using the Akaike Information Criterion (AIC)
+
+Check the roots of characteristic equation.
+
+```{r}
+# Plot the roots 
+par(mfrow = c(1, 1), cex = 0.9)
+armaRoots(zar$ar,lwd = 8, n.plot = 400, digits = 8)
+```
+
+Try testing the stationarity of the mixed process without the first 60 days..
+
+```{r}
+# Plot the shortened process
+matplot(z_t1[-(1:60),],type ="l", main = "z(1,t)=a1'x(t)", col = "blue")
+
+# Fit an autoregressive model
+zar <-ar(z_t1[-(1:60),],  aic = TRUE,method = "yule-walker")
+
+# AR(1)
+zar$order
+
+# Plot the roots
+armaRoots(zar$ar,lwd = 8, n.plot = 400, digits = 8)
+```
+
+The root of the shortened process moved away from the non-stationary territory.
+
+Since cointegration order equals 1, vector a2=(a2,1,a2,2) should not be a cointegration vector and the process zt,2=a'2xtt should not be stationary.
+
+```{r}
+# Cointegration vector 2
+a_2<- cajo@V[,2]
+
+# Multiply time series by 2nd vector
+z_t2= cumReturnsPortfolioSPY %*% a_2
+
+# Plot the non stationary process z_t2
+matplot(z_t2,type ="l", main = "z(2,t)=a2'x(t)", col = "blue")
+```
+
+It indeed looks non-stationary, or at least less stationary than the first cointegrated mix.
+Make the same check of stationarity for the second cointegrateion vector.
+
+```{r}
+# Fit an autoregressive model
+zar <-ar(z_t2,  aic = TRUE,method = "yule-walker")
+
+#AR(1)
+zar$order
+
+# Plot the roots
+par(mfrow = c(1, 1), cex = 0.9)
+armaRoots(zar$ar,lwd = 8, n.plot = 400, digits = 8)
+```
+
+Technically it is stationary. But the root is very close to the unit circle, it is less stationary than the first cointegration mix.
+
+Conclusion: the choice of cointegration hedging ratio is 1, -11.434193.
+
+Compare residuals from both hedging methods.
+
+```{r}
+# Plot hedged model residuals vs 2 cointegration processes
+hedgingResults<-cbind(Regression=hedgeRatioModel$residuals,
+                      Cointegration_1=z_t1,Cointegration_2=z_t2)
+matplot(1:length(hedgingResults[,1]),hedgingResults,type="p",pch=16)
+```
+
+Note that Cointegration_2 looks similar to Regression. Their hedging ratios are also similar:
+
+```{r}
+c(hedgeRatioModel$coefficients,abs(a_2[2]))
+```
+
+Check the summary statistics of all three hedging residuals sets.
+
+```{r}
+summaries<-apply(hedgingResults,2,summary)
+summaries<-rbind(summaries,sd=apply(hedgingResults,2,sd))
+colnames(summaries)<-c("Regression","Cointegration_1","Cointegration_2")
+summaries
+```
+
+Note that residuals of Cointegration_1 are shifted relative to zero.
+
+*Do you see this as a problem?*
+
+No, this is not a problem. Here we identify the Mean of the residuals of Cointegration_1 as 1.879 instead of 0. It is typical that residuals have a mean of 0. When we look at our Cointegration hedging equation, we have 
+
+Portfolio = -11.43 * SPY + ARMA model + 1.879
+
+The 1.879 can be considered an intercept. We are not concerned with this. Since this equation is in returns, we would interpret this that a portion of our portfolio has to be invested in some bond that would give us a constant return of 1.879% to be fully hedged.
+
+
+
+
+
+
+
+
+
