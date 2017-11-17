@@ -1,0 +1,56 @@
+---
+title: "Trading Club Random Forest"
+author: "John Navarro"
+date: "November 9, 2017"
+output: pdf_document
+---
+References
+
+TTR package
+https://cran.r-project.org/web/packages/TTR/TTR.pdf
+
+Khaidem - Predicting the direction of stock market prices using random forest
+https://arxiv.org/pdf/1605.00003.pdf
+
+The goal of the project is to adapt the methodology from the reference paper and use random forests to predict the direction of price movement for Bitcoin.
+
+This project can be expanded to include multiple cryptocurrencies, with the goal to identify the most similar pairs in regards to direction of price movement.
+
+```{r setup, include=FALSE}
+library(quantmod)
+library(TTR)
+```
+
+Import data
+```{r}
+dataPath="C:/Users/JohntheGreat/Documents/MSCA/TradingClub"
+data = read.csv( file=paste(dataPath,"BTC.csv",sep="/"))
+
+```
+
+```{r}
+
+btc.data <- data[,c(2,4)]
+diff<- diff(btc.data$last)
+btc.data <- btc.data[-1,]
+btc.data <- cbind(btc.data,diff)
+head(btc.data)
+dim(btc.data)
+```
+
+Using Package TTR
+```{r}
+btc.rsi <- RSI(btc.data$last, 14)
+head(btc.rsi, 20)
+# need to remove the first 14 elements of rsi (NA values)
+btc.data <- cbind(btc.data, btc.rsi)
+```
+macd
+```{r}
+btc.macd <- MACD(btc.data$last,12,26,9)
+#head(btc.macd,35)
+# need to remove first 33 elements of NAs
+btc.data <- cbind(btc.data, btc.macd)
+btc.data[30:65,]
+```
+
